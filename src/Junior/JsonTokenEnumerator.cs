@@ -36,13 +36,13 @@ namespace Junior
         public string GetText()
         {
             CheckPosition();
-            return _reader.GetTokenText();
+            return _reader.ReadTokenText();
         }
 
         public ValueTask<string> GetTextAsync()
         {
             CheckPosition();
-            return _reader.GetTokenTextAsync();
+            return _reader.ReadTokenTextAsync();
         }
 
         public bool TryGetValue(out string? value)
@@ -54,13 +54,13 @@ namespace Junior
         public string GetValue()
         {
             CheckPosition();
-            return _reader.GetTokenValue();
+            return _reader.ReadTokenValue();
         }
 
         public ValueTask<string> GetValueAsync()
         {
             CheckPosition();
-            return _reader.GetTokenValueAsync();
+            return _reader.ReadTokenValueAsync();
         }
 
         public bool TryGetValueAs<TValue>([MaybeNullWhen(false)] out TValue value)
@@ -164,7 +164,7 @@ namespace Junior
             get
             {
                 CheckPosition();
-                return _reader.CurrentChars;
+                return _reader.CurrentValueSpan;
             }
         }
 

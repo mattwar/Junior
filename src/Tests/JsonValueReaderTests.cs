@@ -83,8 +83,8 @@ namespace Tests
 
         private async Task TestReadNextJsonValueAsync(string json, JsonValue? expectedValue)
         {
-            var reader = new JsonValueReader(json);
-            var actualValue = await reader.ReadNextValueAsync();
+            var reader = JsonTokenReader.Create(new StringReader(json));
+            var actualValue = await JsonValueReader.Instance.ReadAsync(reader);
             if (expectedValue == null)
             {
                 Assert.IsNull(actualValue);

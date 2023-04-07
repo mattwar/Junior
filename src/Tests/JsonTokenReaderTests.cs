@@ -151,13 +151,14 @@ namespace Tests
 
         private async Task TestReadTokensAsync(string json, int bufferSize, params TokenInfo[] expectedTokens)
         {
-            var reader = new JsonTokenReader(new StringReader(json), bufferSize);
+            var reader = JsonTokenReader.Create(new StringReader(json), bufferSize);
 
             var actualTokens = new List<TokenInfo>();
-            while (await reader.ReadNextTokenAsync())
+            while (reader.HasToken)
             {
-                var value = await reader.GetTokenValueAsync();
-                actualTokens.Add(new TokenInfo(reader.TokenKind, value));
+                var kind = reader.TokenKind;
+                var value = await reader.ReadTokenValueAsync();
+                actualTokens.Add(new TokenInfo(kind, value));
             }
 
             Assert.AreEqual(expectedTokens.Length, actualTokens.Count, "token count");
@@ -175,12 +176,12 @@ namespace Tests
 
         private async Task TestReadTokenTextsAsync(string json, int bufferSize, params string[] expectedTexts)
         {
-            var reader = new JsonTokenReader(new StringReader(json), bufferSize);
+            var reader = JsonTokenReader.Create(new StringReader(json), bufferSize);
 
             var actualTexts = new List<string>();
-            while (await reader.ReadNextTokenAsync())
+            while (reader.HasToken)
             {
-                var value = await reader.GetTokenTextAsync();
+                var value = await reader.ReadTokenTextAsync();
                 actualTexts.Add(value);
             }
 
@@ -199,12 +200,12 @@ namespace Tests
 
         private async Task TestReadTokenValuesAsync(string json, int bufferSize, params string[] expectedValues)
         {
-            var reader = new JsonTokenReader(new StringReader(json), bufferSize);
+            var reader = JsonTokenReader.Create(new StringReader(json), bufferSize);
 
             var actualValues = new List<string>();
-            while (await reader.ReadNextTokenAsync())
+            while (reader.HasToken)
             {
-                var value = await reader.GetTokenValueAsync();
+                var value = await reader.ReadTokenValueAsync();
                 actualValues.Add(value);
             }
 

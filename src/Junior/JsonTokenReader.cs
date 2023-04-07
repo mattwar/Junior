@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace Junior
 {
@@ -21,6 +22,28 @@ namespace Junior
         Comma,
         Colon,
         Error
+    }
+
+    public static class TokenKindExtensions
+    {
+        public static bool IsValueStart(this TokenKind kind)
+        {
+            switch (kind)
+            {
+                case TokenKind.ListStart:
+                case TokenKind.ListEnd:
+                case TokenKind.ObjectStart:
+                case TokenKind.ObjectEnd:
+                case TokenKind.Number:
+                case TokenKind.String:
+                case TokenKind.True:
+                case TokenKind.False:
+                case TokenKind.Null:
+                    return true;
+                default:
+                    return false;
+            }
+        }
     }
 
     /// <summary>
@@ -73,6 +96,10 @@ namespace Junior
 
         public const int DefaultBufferSize = 4096;
 
+        /// <summary>
+        /// Creates a new instance of <see cref="JsonTokenReader"/>.
+        /// The reader is positioned before the first token.
+        /// </summary>
         public JsonTokenReader(TextReader reader, int bufferSize = DefaultBufferSize)
         {
             _reader = reader;
@@ -81,20 +108,41 @@ namespace Junior
             _token = default;
         }
 
-        public JsonTokenReader(Stream stream, int bufferSize = DefaultBufferSize)
-            : this(new StreamReader(stream), bufferSize)
+        /// <summary>
+        /// Creates a new instance of <see cref="JsonTokenReader"/>.
+        /// The reader is moved to the first token.
+        /// </summary>
+        public static JsonTokenReader Create(TextReader textReader, int bufferSize = DefaultBufferSize)
         {
-        }
-
-        public JsonTokenReader(string text, int bufferSize = DefaultBufferSize)
-            : this(new StringReader(text), bufferSize)
-        {
+            var reader = new JsonTokenReader(textReader, bufferSize);
+            reader.MoveToNextToken();
+            return reader;
         }
 
         /// <summary>
-        /// The overall position within the text stream.
+        /// Creates a new instance of <see cref="JsonTokenReader"/>.
+        /// The reader is moved to the first token.
+        /// </summary>
+        public static async ValueTask<JsonTokenReader> CreateAsync(TextReader textReader, int bufferSize = DefaultBufferSize)
+        {
+            var reader = new JsonTokenReader(textReader, bufferSize);
+            await reader.MoveToNextTokenAsync().ConfigureAwait(false);
+            return reader;
+        }
+
+        /// <summary>
+        /// The position within the text stream.
         /// </summary>
         public long Position => _bufferStart + _bufferOffset;
+
+        /// <summary>
+        /// Returns true if the reader is positioned on a token.
+        /// Returns false if the reader is positioned before the start of the stream
+        /// or after the end of the stream.
+        /// </summary>
+        public bool HasToken =>
+            _token.Stage != TokenStage.Unread
+            && _token.Kind != TokenKind.None;
 
         /// <summary>
         /// The kind of token just read.
@@ -127,47 +175,34 @@ namespace Junior
         public bool TokenInBuffer => _token.Stage == TokenStage.InBuffer;
 
         /// <summary>
-        /// The latest read block of token characters.
+        /// The latest read span of token text characters.
         /// </summary>
-        public ReadOnlySpan<char> CurrentChars =>
-            (_decoded)
-                ? _decodeBuffer.AsSpan().Slice(0, _token.DecodedLength)
-                : _buffer.AsSpan().Slice(_token.Start, _token.Length);
+        public ReadOnlySpan<char> CurrentTextSpan =>
+            _buffer.AsSpan().Slice(_token.Start, _token.Length);
 
         /// <summary>
-        /// Gets the span for the in buffer token value.
+        /// The latest read span of token value characters.
         /// </summary>
-        private ReadOnlySpan<char> GetInBufferValueSpan()
+        public ReadOnlySpan<char> CurrentValueSpan
         {
-            if (this.TokenInBuffer)
+            get
             {
                 if (this.TokenKind == TokenKind.String)
                 {
-                    if (_token.HasEscapes)
+                    if (!_decoded)
                     {
-                        if (!_decoded)
-                        {
-                            DecodeStringInBuffer(_decodeBuffer, out var decodedLength);
-                            _token.DecodedLength = decodedLength;
-                            _decoded = true;
-                        }
+                        DecodeStringInBuffer(_decodeBuffer, out var decodedLength);
+                        _token.DecodedLength = decodedLength;
+                        _decoded = true;
+                    }
 
-                        return _decodeBuffer.AsSpan().Slice(0, _token.DecodedLength);
-                    }
-                    else
-                    {
-                        // no escapes, don't decode, use interior from primary buffer
-                        return _buffer.AsSpan().Slice(_token.Start + 1, _token.Length - 2);
-                    }
+                    return _decodeBuffer.AsSpan().Slice(0, _token.DecodedLength);
                 }
                 else
                 {
-                    // take the span of the token in the primary buffer
-                    return _buffer.AsSpan().Slice(_token.Start, _token.Length);
+                    return CurrentTextSpan;
                 }
             }
-
-            return default;
         }
 
         /// <summary>
@@ -219,12 +254,14 @@ namespace Junior
         }
 
         /// <summary>
-        /// Gets the text of the current token.
+        /// Reads the text of the current token.
+        /// After reading the text, the reader is moved to the next token.
         /// </summary>
-        public string GetTokenText()
+        public string ReadTokenText(bool moveToNextToken = true)
         {
             if (this.TryGetTokenText(out var tokenText))
             {
+                MoveToNextToken();
                 return tokenText;
             }
             else
@@ -233,20 +270,23 @@ namespace Junior
 
                 while (ReadNextTokenChars())
                 {
-                    builder.Append(this.CurrentChars);
+                    builder.Append(this.CurrentValueSpan);
                 }
 
+                MoveToNextToken();
                 return builder.ToString();
             }
         }
 
         /// <summary>
         /// Gets the text of the current token, asynchronously if necessary.
+        /// After reading the text, the reader is moved to the next token.
         /// </summary>
-        public async ValueTask<string> GetTokenTextAsync()
+        public async ValueTask<string> ReadTokenTextAsync()
         {
             if (this.TryGetTokenText(out var tokenText))
             {
+                await MoveToNextTokenAsync().ConfigureAwait(false);
                 return tokenText;
             }
             else
@@ -255,9 +295,10 @@ namespace Junior
 
                 while (await this.ReadNextTokenCharsAsync().ConfigureAwait(false))
                 {
-                    builder.Append(this.CurrentChars);
+                    builder.Append(this.CurrentValueSpan);
                 }
 
+                await MoveToNextTokenAsync().ConfigureAwait(false);
                 return builder.ToString();
             }
         }
@@ -320,6 +361,8 @@ namespace Junior
                 while (true)
                 {
                     _token.Start = _bufferOffset;
+                    _token.Length = 0;
+
                     if (ScanUntilMatchOrEndOfBuffer(0, IsTokenEnd, out var segmentLength)
                         || _done)
                     {
@@ -327,7 +370,7 @@ namespace Junior
                         _token.Length = segmentLength;
                         _token.DecodedLength = segmentLength;
                         _token.Stage = TokenStage.End;
-                        return true;
+                        return segmentLength > 0;
                     }
                     else if (segmentLength > 0)
                     {
@@ -409,7 +452,7 @@ namespace Junior
                         _token.Length = segmentLength;
                         _token.DecodedLength = segmentLength;
                         _token.Stage = TokenStage.End;
-                        return true;
+                        return segmentLength > 0;
                     }
                     else if (segmentLength > 0)
                     {
@@ -453,8 +496,7 @@ namespace Junior
                 case TokenKind.String:
                     if (this.TokenInBuffer)
                     {
-                        var span = GetInBufferValueSpan();
-                        value = new string(span);
+                        value = new string(this.CurrentValueSpan);
                         return true;
                     }
                     break;
@@ -476,8 +518,7 @@ namespace Junior
         {
             if (this.TokenInBuffer)
             {
-                var span = GetInBufferValueSpan();
-                return TValue.TryParse(span, null, out value);
+                return TValue.TryParse(this.CurrentValueSpan, null, out value);
             }
             else
             {
@@ -486,15 +527,33 @@ namespace Junior
             }
         }
 
+        /// <summary>
+        /// </summary>
+        public TValue? ReadTokenValueAs<TValue>()
+            where TValue : ISpanParsable<TValue>
+        {
+            if (TryGetTokenValueAs<TValue>(out var value))
+            {
+                MoveToNextToken();
+                return value;
+            }
+            else
+            {
+                MoveToNextToken();
+                return default;
+            }
+        }
 
         /// <summary>
-        /// Gets the value text of the current token, asynchronously if necessary.
-        /// This is the same as <see cref="GetTokenTextAsync"/> except string literals are converted to 
+        /// Reads the value of the current token, asynchronously if necessary.
+        /// This is the same as <see cref="ReadTokenTextAsync"/> except string literals are converted to 
+        /// After reading the value, the reader is moved to the next token.
         /// </summary>
-        public string GetTokenValue()
+        public string ReadTokenValue()
         {
             if (this.TryGetTokenValue(out var stringValue))
             {
+                MoveToNextToken();
                 return stringValue;
             }
             else
@@ -503,21 +562,24 @@ namespace Junior
 
                 while (ReadNextTokenValueChars())
                 {
-                    builder.Append(this.CurrentChars);
+                    builder.Append(this.CurrentValueSpan);
                 }
 
+                MoveToNextToken();
                 return builder.ToString();
             }
         }
 
         /// <summary>
-        /// Gets the value text of the current token, asynchronously if necessary.
-        /// This is the same as <see cref="GetTokenTextAsync"/> except string literals are converted to 
+        /// Reads the value text of the current token, asynchronously if necessary.
+        /// This is the same as <see cref="ReadTokenTextAsync"/> except string literals are converted to 
+        /// After reading the value, the reader is moved to the next token.
         /// </summary>
-        public async ValueTask<string> GetTokenValueAsync()
+        public async ValueTask<string> ReadTokenValueAsync()
         {
             if (this.TryGetTokenValue(out var stringValue))
             {
+                await MoveToNextTokenAsync().ConfigureAwait(false);
                 return stringValue;
             }
             else
@@ -526,8 +588,10 @@ namespace Junior
 
                 while (await this.ReadNextTokenValueCharsAsync().ConfigureAwait(false))
                 {
-                    builder.Append(this.CurrentChars);
+                    builder.Append(this.CurrentValueSpan);
                 }
+
+                await MoveToNextTokenAsync().ConfigureAwait(false);
 
                 return builder.ToString();
             }
@@ -542,7 +606,7 @@ namespace Junior
             if (_token.Kind != TokenKind.String)
                 return ReadNextTokenChars();
 
-            var length = 0;
+            var segmentLength = 0;
 
             _decoded = false;
             _token.DecodedLength = 0;
@@ -551,7 +615,7 @@ namespace Junior
             if (_token.Stage == TokenStage.Start)
             {
                 AdvanceInBuffer(1); // skip start quote;
-                length++;
+                segmentLength++;
                 _token.Stage = TokenStage.Interior;
             }
 
@@ -563,27 +627,27 @@ namespace Junior
                 if (interiorLength > 0)
                 {
                     AdvanceInBuffer(interiorLength);
-                    length += interiorLength;
+                    segmentLength += interiorLength;
                 }
 
-                if (length > 0)
+                if (segmentLength > 0)
                 {
                     var ch = PeekInBuffer();
                     if (ch == '"')
                     {
                         AdvanceInBuffer(1);
-                        length++;
-                        _token.Length = length;
+                        segmentLength++;
+                        _token.Length = segmentLength;
                         _token.DecodedLength = segmentDecodedLength;
                         _token.Stage = TokenStage.End;
                         return true;
                     }
                     else if (ch == '\0' && _done)
                     {
-                        _token.Length = length;
+                        _token.Length = segmentLength;
                         _token.DecodedLength = segmentDecodedLength;
                         _token.Stage = TokenStage.End;
-                        return true;
+                        return segmentLength > 0;
                     }
                     break;
                 }
@@ -604,6 +668,7 @@ namespace Junior
 
             var length = 0;
             _token.Start = _bufferOffset;
+            _token.Length = 0;
 
             if (_token.Stage == TokenStage.Start)
             {
@@ -661,7 +726,7 @@ namespace Junior
         /// Returns false if the next token is not fully within the buffer
         /// or there are no more tokens.
         /// </summary>
-        public bool TryReadNextToken()
+        public bool TryMoveNextInBuffer()
         {
             if (_token.Kind == TokenKind.None)
             {
@@ -680,6 +745,8 @@ namespace Junior
                 return false;
             }
 
+            _decoded = false;
+
             if (ScanTokenInBuffer(0, out _token))
             {
                 _bufferOffset = _token.Start;
@@ -690,9 +757,9 @@ namespace Junior
         }
 
         /// <summary>
-        /// Reads forward to the next token, asynchronously if necessary.
+        /// Moves forward to the next token, asynchronously if necessary.
         /// </summary>
-        public bool ReadNextToken()
+        public bool MoveToNextToken()
         {
             // skip over current token
             if (_token.Stage == TokenStage.InBuffer)
@@ -708,6 +775,7 @@ namespace Junior
                 }
             }
 
+            _decoded = false;
             while (true)
             {
                 if (ScanTokenInBuffer(0, out _token)
@@ -725,9 +793,9 @@ namespace Junior
         }
 
         /// <summary>
-        /// Reads forward to the next token, asynchronously if necessary.
+        /// Moves forward to the next token, asynchronously if necessary.
         /// </summary>
-        public async ValueTask<bool> ReadNextTokenAsync()
+        public async ValueTask<bool> MoveToNextTokenAsync()
         {
             // skip over current token
             if (_token.Stage == TokenStage.InBuffer)
@@ -742,6 +810,8 @@ namespace Junior
                 {
                 }
             }
+
+            _decoded = false;
 
             while (true)
             {
@@ -764,9 +834,9 @@ namespace Junior
             || (token.Stage == TokenStage.Start && token.Length == _buffer.Length);
 
         /// <summary>
-        /// Skip past the current token, list or object.
+        /// Moves past the current token, list or object.
         /// </summary>
-        public bool Skip()
+        public bool MoveToNextElement()
         {
             if (_token.Kind == TokenKind.ListStart
                 || _token.Kind == TokenKind.ObjectStart)
@@ -774,7 +844,7 @@ namespace Junior
                 var count = 1;
                 while (count > 0)
                 {
-                    if (!ReadNextToken())
+                    if (!MoveToNextToken())
                         return false;
 
                     if (_token.Kind == TokenKind.ListStart
@@ -792,13 +862,13 @@ namespace Junior
                 }
             }
 
-            return ReadNextToken();
+            return MoveToNextToken();
         }
 
         /// <summary>
-        /// Skips the current token, list or object, asynchronously if necessary.
+        /// Moves past the current token, list or object.
         /// </summary>
-        public async ValueTask<bool> SkipAsync()
+        public async ValueTask<bool> MoveToNextElementAsync()
         {
             if (_token.Kind == TokenKind.ListStart
                 || _token.Kind == TokenKind.ObjectStart)
@@ -806,7 +876,7 @@ namespace Junior
                 var count = 1;
                 while (count > 0)
                 {
-                    if (!await ReadNextTokenAsync().ConfigureAwait(false))
+                    if (!await MoveToNextTokenAsync().ConfigureAwait(false))
                         return false;
 
                     if (_token.Kind == TokenKind.ListStart
@@ -824,30 +894,51 @@ namespace Junior
                 }
             }
 
-            return await ReadNextTokenAsync().ConfigureAwait(false);
+            return await MoveToNextTokenAsync().ConfigureAwait(false);
         }
 
         /// <summary>
         /// Identifies the next token's kind if it can be reached within the buffer.
         /// </summary>
-        public bool PeekTokenKind(out TokenKind kind, int index = 0)
+        public TokenKind PeekTokenKind(int index = 0)
         {
-            if (PeekTokenInfo(out var token, index))
-            {
-                kind = token.Kind;
-                return true;
-            }
-            else
-            {
-                kind = TokenKind.Unknown;
-                return false;
-            }
+            if (PeekTokenInBuffer(out var token, index))
+                return token.Kind;
+
+            ReadBuffer();
+
+            if (_token.Stage == TokenStage.Start)
+                MoveToNextToken();
+
+            if (PeekTokenInBuffer(out token, index))
+                return token.Kind;
+    
+            return TokenKind.Unknown;
+        }
+
+        /// <summary>
+        /// Identifies the next token's kind if it can be reached within the buffer.
+        /// </summary>
+        public async ValueTask<TokenKind> PeekTokenKindAsync(int index = 0)
+        {
+            if (PeekTokenInBuffer(out var token, index))
+                return token.Kind;
+
+            await ReadBufferAsync().ConfigureAwait(false);
+
+            if (_token.Stage == TokenStage.Start)
+                await MoveToNextTokenAsync().ConfigureAwait(false);
+
+            if (PeekTokenInBuffer(out token, index))
+                return token.Kind;
+ 
+            return TokenKind.Unknown;
         }
 
         /// <summary>
         /// Identifies the token info if it can be reached within the buffer.
         /// </summary>
-        private bool PeekTokenInfo(out TokenInfo token, int index = 0)
+        private bool PeekTokenInBuffer(out TokenInfo token, int index = 0)
         {
             token = _token;
 
@@ -1495,9 +1586,11 @@ namespace Junior
             if (_bufferOffset < _bufferLength)
             {
                 remaining = _bufferLength - _bufferOffset;
+
                 if (_bufferOffset > 0 && remaining > 0)
                 {
                     Array.Copy(_buffer, _bufferOffset, _buffer, 0, remaining);
+                    _token.Start -= _bufferOffset;
                     _bufferStart += _bufferOffset;
                     _bufferOffset = 0;
                     _bufferLength = remaining;
@@ -1506,6 +1599,7 @@ namespace Junior
             else
             {
                 remaining = 0;
+                _token.Start -= _bufferOffset;
                 _bufferStart += _bufferOffset;
                 _bufferOffset = 0;
                 _bufferLength = 0;
@@ -1559,6 +1653,7 @@ namespace Junior
                 if (_bufferOffset > 0 && remaining > 0)
                 {
                     Array.Copy(_buffer, _bufferOffset, _buffer, 0, remaining);
+                    _token.Start -= _bufferOffset;
                     _bufferStart += _bufferOffset;
                     _bufferOffset = 0;
                     _bufferLength = remaining;
@@ -1567,6 +1662,7 @@ namespace Junior
             else
             {
                 remaining = 0;
+                _token.Start -= _bufferOffset;
                 _bufferStart += _bufferOffset;
                 _bufferOffset = 0;
                 _bufferLength = 0;

@@ -4,13 +4,14 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
 using System.Xml;
+using Junior;
 
 namespace Junior
 {
     /// <summary>
     /// Reads tabular data in a specific format within json stream.
     /// { "name": "...", "columns": [...], "rows": [[...], [...], [...]] }
-    /// Colum schema is eiter a list of column names or a list of objects with name & type.
+    /// Colum schema is either a list of column names or a list of objects with name & type.
     /// </summary>
     public class JsonDataReader
     {
@@ -23,23 +24,8 @@ namespace Junior
         public JsonDataReader(JsonTokenReader reader)
         {
             _tokenReader = reader;
-            _valueReader = new JsonValueReader(reader);
+            _valueReader = JsonValueReader.Instance;
             _state = ReadState.Start;
-        }
-
-        public JsonDataReader(TextReader textReader)
-            : this(new JsonTokenReader(textReader))
-        {
-        }
-
-        public JsonDataReader(Stream stream)
-            : this(new JsonTokenReader(stream))
-        {
-        }
-
-        public JsonDataReader(string text)
-            : this(new JsonTokenReader(text))
-        {
         }
 
         public JsonTokenReader TokenReader => _tokenReader;
@@ -114,7 +100,7 @@ namespace Junior
                 {
                     _state = ReadState.RowSet;
 
-                    if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
+                    if (!(await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false)))
                         return false;
                 }
 
@@ -123,7 +109,7 @@ namespace Junior
                 {
                     _state = ReadState.Table;
 
-                    if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
+                    if (!(await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false)))
                         return false;
                 }
 
@@ -132,23 +118,23 @@ namespace Junior
                 {
                     _state = ReadState.TableSet;
 
-                    if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
+                    if (!(await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false)))
                         return false;
                 }
             }
             else if (_state == ReadState.Start)
             {
-                // read the first token
+                // read the first token if not already read
+                if (!_tokenReader.HasToken)
+                    await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
                 _state = ReadState.TableSet;
-                if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
-                    return false;
             }
 
             // if there is no comma when we are reading tables, then there are no more tables
             if (_state == ReadState.TableSet
                 && _tokenReader.TokenKind == TokenKind.Comma)
             {
-                if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
+                if (!(await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false)))
                     return false;
             }
 
@@ -156,50 +142,54 @@ namespace Junior
             if (_state == ReadState.TableSet
                 && _tokenReader.TokenKind == TokenKind.ObjectStart)
             {
-                if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
-                    return false;
+                await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
 
                 _tableName = "";
                 _tableSchema = null;
 
-                while (_tokenReader.TokenKind != TokenKind.ObjectEnd)
+                while (_tokenReader.HasToken)
                 {
-                    if (_tokenReader.TokenKind == TokenKind.Comma)
+                    if (_tokenReader.TokenKind == TokenKind.ObjectEnd)
                     {
-                        if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
-                            return false;
+                        await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
+                        break;
+                    }
+                    else if (_tokenReader.TokenKind == TokenKind.Comma)
+                    {
+                        await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
                         continue;
                     }
-
-                    var propertyName = await _valueReader.GetJsonPropertyNameAsync().ConfigureAwait(false);
-                    if (propertyName == "columns")
+                    else if (_tokenReader.TokenKind.IsValueStart())
                     {
-                        _tableSchema = (await _valueReader.ReadValueAsync().ConfigureAwait(false)) as JsonList;
-                        continue;
-                    }
-                    else if (propertyName == "rows")
-                    {
-                        if (_tokenReader.TokenKind != TokenKind.ListStart)
-                            return false;
-
-                        if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
-                            return false;
-
-                        _state = ReadState.RowSet;
-                        return true;
-                    }
-                    else if (propertyName == "name")
-                    {
-                        var val = await _valueReader.ReadValueAsync().ConfigureAwait(false);
-                        if (val is JsonString str)
-                            _tableName = str.Value;
-
-                        continue;
+                        var propertyName = await _valueReader.ReadJsonPropertyNameAsync(_tokenReader).ConfigureAwait(false);
+                        if (propertyName == "name")
+                        {
+                            var val = await _valueReader.ReadAsync(_tokenReader).ConfigureAwait(false);
+                            if (val is JsonString str)
+                                _tableName = str.Value;
+                            continue;
+                        }
+                        else if (propertyName == "columns")
+                        {
+                            _tableSchema = (await _valueReader.ReadAsync(_tokenReader).ConfigureAwait(false)) as JsonList;
+                            continue;
+                        }
+                        else if (propertyName == "rows"
+                            && _tokenReader.TokenKind == TokenKind.ListStart)
+                        {
+                            await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
+                            _state = ReadState.RowSet;
+                            return true;
+                        }
+                        else
+                        {
+                            // skip this unknown property value
+                            await _tokenReader.MoveToNextElementAsync().ConfigureAwait(false);
+                        }
                     }
                     else
                     {
-                        // skip this unknown property
-                        var _ = _valueReader.ReadValueAsync().ConfigureAwait(false);
+                        break;
                     }
                 }
             }
@@ -225,28 +215,26 @@ namespace Junior
                 if (_tokenReader.TokenKind == TokenKind.ListEnd)
                 {
                     _state = ReadState.Row;
-                    await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false);
+                    await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
                     return false;
                 }
             }
-            else if (_state == ReadState.Start)
+            else if (_state == ReadState.Start
+                && !_tokenReader.HasToken)
             {
-                if (!(await MoveToNextTableAsync().ConfigureAwait(false)))
-                    return false;
+                await MoveToNextTableAsync().ConfigureAwait(false);
             }
 
             if (_state == ReadState.RowSet
                 && _tokenReader.TokenKind == TokenKind.Comma)
             {
-                if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
-                    return false;
+                await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
             }
 
             if (_state == ReadState.RowSet
                 && _tokenReader.TokenKind == TokenKind.ListStart)
             {
-                if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
-                    return false;
+                await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
                 _state = ReadState.Row;
                 return true;
             }
@@ -254,16 +242,14 @@ namespace Junior
             if (_state == ReadState.RowSet
                 && _tokenReader.TokenKind == TokenKind.ListEnd)
             {
-                if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
-                    return false;
+                await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
                 _state = ReadState.Table;
             }
 
             if (_state == ReadState.Table
                 && _tokenReader.TokenKind == TokenKind.ObjectEnd)
             {
-                if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
-                    return false;
+                await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
                 _state = ReadState.TableSet;
             }
 
@@ -280,8 +266,7 @@ namespace Junior
             {
                 if (_tokenReader.TokenKind == TokenKind.ListEnd)
                 {
-                    if (!(await MoveToNextTableAsync().ConfigureAwait(false)))
-                        return false;
+                    await MoveToNextTableAsync().ConfigureAwait(false);
                     _state = ReadState.RowSet;
                     return false;
                 }
@@ -293,178 +278,45 @@ namespace Junior
             else if (_state == ReadState.Field)
             {
                 // move to next field
-                _currentFieldIndex++;
-
-                while (_tokenReader.TryReadNextToken()
-                    || await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false))
+                if (_tokenReader.TokenKind == TokenKind.ListEnd)
                 {
-                    if (_tokenReader.TokenKind == TokenKind.Comma)
-                    {
-                        continue;
-                    }
-                    else if (_tokenReader.TokenKind == TokenKind.ListEnd)
-                    {
-                        if (!(await _tokenReader.ReadNextTokenAsync().ConfigureAwait(false)))
-                            return false;
-                        _state = ReadState.RowSet;
-                        return false;
-                    }
-
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        public object? ReadFieldValue()
-        {
-            var type = CurrentFieldType;
-            if (type == null)
-            {
-                return ReadObjectValue();
-            }
-            else if (_typeToFieldMap.TryGetValue(type, out var field))
-            {
-                return field.GetValue(this);
-            }
-
-            return null;
-        }
-
-        internal object? ReadObjectValue()
-        {
-            switch (_tokenReader.TokenKind)
-            {
-                case TokenKind.True:
-                    return true;
-                case TokenKind.False:
+                    await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
+                    _state = ReadState.RowSet;
                     return false;
-                case TokenKind.Null:
-                    return null;
-                case TokenKind.String:
-                    return _tokenReader.GetTokenValue();
-                case TokenKind.Number:
-                    if (_tokenReader.TryGetTokenValueAs<int>(out var intValue))
-                        return intValue;
-                    else if (_tokenReader.TryGetTokenValueAs<long>(out var longValue))
-                        return longValue;
-                    else if (_tokenReader.TryGetTokenValueAs<double>(out var doubleValue))
-                        return doubleValue;
-                    else if (_tokenReader.TryGetTokenValueAs<decimal>(out var decimalValue))
-                        return decimalValue;
-                    else
-                        return _tokenReader.GetTokenValue();
-                case TokenKind.ListStart:
-                    var list = new List<object?>();
-                    while (true)
-                    {
-                        // skip current token
-                        if (!_tokenReader.ReadNextToken())
-                            return list;
+                }
+                else if (_tokenReader.TokenKind == TokenKind.Comma)
+                {
+                    await _tokenReader.MoveToNextTokenAsync().ConfigureAwait(false);
+                }
 
-                        if (_tokenReader.TokenKind == TokenKind.ListEnd)
-                        {
-                            return list;
-                        }
-                        else if (_tokenReader.TokenKind == TokenKind.Comma)
-                        {
-                            if (!_tokenReader.ReadNextToken())
-                                return list;
-                            continue;
-                        }
-                        else
-                        {
-                            var value = ReadObjectValue();
-                            list.Add(value);
-                            continue;
-                        }
-                    }
-                case TokenKind.ObjectStart:
-                    var map = new Dictionary<string, object?>();
-                    while (true)
-                    {
-                        // skip current token
-                        if (!_tokenReader.ReadNextToken())
-                            return map;
-
-                        if (_tokenReader.TokenKind == TokenKind.ListEnd)
-                        {
-                            return map;
-                        }
-                        else if (_tokenReader.TokenKind == TokenKind.Comma)
-                        {
-                            if (!_tokenReader.ReadNextToken())
-                                return map;
-                            continue;
-                        }
-                        else if (_tokenReader.TokenKind == TokenKind.String)
-                        {
-                            var name = _tokenReader.GetTokenValue();
-
-                            if (!_tokenReader.ReadNextToken())
-                                return map;
-
-                            if (_tokenReader.TokenKind != TokenKind.Colon)
-                                return map;
-
-                            var value = ReadObjectValue();
-
-                            map.Add(name, value);
-                            continue;
-                        }
-                    }
-            }
-
-            return null;
-        }
-
-#if false
-        public async ValueTask<string> GetFieldStringAsync()
-        {
-            if (!_tokenReader.TryGetTokenValue(out var value))
-            {
-                value = await _tokenReader.GetTokenValueAsync().ConfigureAwait(false);
-            }
-
-            return value;
-        }
-
-        public async ValueTask<StringBuilder> GetFieldStringBuilderAsync()
-        {
-            var builder = new StringBuilder();
-            await WriteFieldAsync(builder);
-            return builder;
-        }
-
-        public async ValueTask WriteFieldAsync(StringBuilder builder)
-        {
-            while (await ReadFieldCharsAsync().ConfigureAwait(false))
-            {
-                builder.Append(this.CurrentFieldChars);
-            }
-        }
-
-        public async ValueTask WriteFieldValueAsync(TextWriter writer)
-        {
-            while (await ReadFieldCharsAsync().ConfigureAwait(false))
-            {
-                writer.Write(this.CurrentFieldChars);
-            }
-        }
-#endif
-
-        public ReadOnlySpan<char> CurrentFieldChars =>
-            _tokenReader.CurrentChars;
-
-        public async Task<bool> ReadFieldCharsAsync()
-        {
-            if (await _tokenReader.ReadNextTokenValueCharsAsync().ConfigureAwait(false))
-            {
+                _currentFieldIndex++;
                 return true;
             }
 
             return false;
+        }
+
+        public async ValueTask<object?> ReadFieldValueAsync()
+        {
+            var type = CurrentFieldType;
+            if (type == null)
+            {
+                await JsonAnyReader.Instance.ReadAsync(_tokenReader).ConfigureAwait(false);
+            }
+            else if (_typeToFieldMap.TryGetValue(type, out var typeReader))
+            {
+                return await typeReader.ReadObjectAsync(_tokenReader).ConfigureAwait(false);
+            }
+
+            return null;
+        }
+
+        public ReadOnlySpan<char> CurrentFieldValueSpan => 
+            _tokenReader.CurrentValueSpan;
+
+        public ValueTask<bool> ReadNextFieldValueSpan()
+        {
+            return _tokenReader.ReadNextTokenValueCharsAsync();
         }
 
         private record ColumnSchema(string Name, string Type);
@@ -504,144 +356,38 @@ namespace Junior
             Value
         }
 
-        private static readonly Dictionary<string, FieldReader> _typeToFieldMap =
-            new Dictionary<string, FieldReader>(StringComparer.OrdinalIgnoreCase)
+        private static readonly Dictionary<string, JsonTypeReader> _typeToFieldMap =
+            new Dictionary<string, JsonTypeReader>(StringComparer.OrdinalIgnoreCase)
             {
-                {"object", ObjectFieldReader.Instance },
-                {"string", StringFieldReader.Instance },
-                {"byte", SpanParsableFieldReader<byte>.Instance },
-                {"uint8", SpanParsableFieldReader<byte>.Instance },
-                {"sbyte", SpanParsableFieldReader<sbyte>.Instance },
-                {"int8", SpanParsableFieldReader<sbyte>.Instance },
-                {"short", SpanParsableFieldReader<short>.Instance },
-                {"int16", SpanParsableFieldReader<short>.Instance },
-                {"ushort", SpanParsableFieldReader<ushort>.Instance },
-                {"uint16", SpanParsableFieldReader<ushort>.Instance },
-                {"int", SpanParsableFieldReader<int>.Instance },
-                {"int32", SpanParsableFieldReader<int>.Instance },
-                {"uint", SpanParsableFieldReader<uint>.Instance },
-                {"uint32", SpanParsableFieldReader<uint>.Instance },
-                {"long", SpanParsableFieldReader<long>.Instance },
-                {"int64", SpanParsableFieldReader<long>.Instance },
-                {"ulong", SpanParsableFieldReader<ulong>.Instance },
-                {"uint64", SpanParsableFieldReader<ulong>.Instance },
-                {"double", SpanParsableFieldReader<double>.Instance },
-                {"real", SpanParsableFieldReader<double>.Instance },
-                {"float", SpanParsableFieldReader<float>.Instance },
-                {"single", SpanParsableFieldReader<float>.Instance },
-                {"decimal", SpanParsableFieldReader<decimal>.Instance },
-                {"datetime", SpanParsableFieldReader<DateTime>.Instance },
-                {"timespan", SpanParsableFieldReader<TimeSpan>.Instance },
-                {"guid", SpanParsableFieldReader<Guid>.Instance },
-                {"bool", BoolFieldReader.Instance },
-                {"boolean", BoolFieldReader.Instance }
+                {"object", JsonAnyReader.Instance },
+                {"string", JsonStringAssignableReader<string>.Instance },
+                {"byte", JsonSpanParsableReader<byte>.Instance },
+                {"uint8", JsonSpanParsableReader<byte>.Instance },
+                {"sbyte", JsonSpanParsableReader<sbyte>.Instance },
+                {"int8", JsonSpanParsableReader<sbyte>.Instance },
+                {"short", JsonSpanParsableReader<short>.Instance },
+                {"int16", JsonSpanParsableReader<short>.Instance },
+                {"ushort", JsonSpanParsableReader<ushort>.Instance },
+                {"uint16", JsonSpanParsableReader<ushort>.Instance },
+                {"int", JsonSpanParsableReader<int>.Instance },
+                {"int32", JsonSpanParsableReader<int>.Instance },
+                {"uint", JsonSpanParsableReader<uint>.Instance },
+                {"uint32", JsonSpanParsableReader<uint>.Instance },
+                {"long", JsonSpanParsableReader<long>.Instance },
+                {"int64", JsonSpanParsableReader<long>.Instance },
+                {"ulong", JsonSpanParsableReader<ulong>.Instance },
+                {"uint64", JsonSpanParsableReader<ulong>.Instance },
+                {"double", JsonSpanParsableReader<double>.Instance },
+                {"real", JsonSpanParsableReader<double>.Instance },
+                {"float", JsonSpanParsableReader<float>.Instance },
+                {"single", JsonSpanParsableReader<float>.Instance },
+                {"decimal", JsonSpanParsableReader<decimal>.Instance },
+                {"datetime", JsonSpanParsableReader<DateTime>.Instance },
+                {"timespan", JsonSpanParsableReader<TimeSpan>.Instance },
+                {"guid", JsonSpanParsableReader<Guid>.Instance },
+                {"bool", JsonBoolReader.Instance },
+                {"boolean", JsonBoolReader.Instance },
+                {"json", JsonValueReader.Instance }
             };
-
-        private abstract class FieldReader
-        {
-            public abstract object? GetValue(JsonDataReader reader);
-            public abstract ValueTask<object?> GetValueAsync(JsonDataReader reader);
-        }
-
-        private class StringFieldReader : FieldReader
-        {
-            public static readonly StringFieldReader Instance = new StringFieldReader();
-
-            public override object? GetValue(JsonDataReader reader)
-            {
-                return reader.TokenReader.GetTokenValue();
-            }
-
-            public override async ValueTask<object?> GetValueAsync(JsonDataReader reader)
-            {
-                return await reader.TokenReader.GetTokenValueAsync().ConfigureAwait(false);
-            }
-        }
-
-        private class BoolFieldReader : FieldReader
-        {
-            public static readonly BoolFieldReader Instance = new BoolFieldReader();
-
-            private static readonly object _true = true;
-            private static readonly object _false = false;
-
-            public override object? GetValue(JsonDataReader reader)
-            {
-                switch (reader.TokenReader.TokenKind)
-                {
-                    case TokenKind.True:
-                        return _true;
-                    case TokenKind.False:
-                        return _false;
-                    case TokenKind.Null:
-                        return null;
-                    default:
-                        return null;
-                }
-            }
-
-            public override ValueTask<object?> GetValueAsync(JsonDataReader reader)
-            {
-                return new ValueTask<object?>(GetValue(reader));
-            }
-        }
-
-        private class ObjectFieldReader : FieldReader
-        {
-            public static readonly ObjectFieldReader Instance = new ObjectFieldReader();
-
-            public override object? GetValue(JsonDataReader reader)
-            {
-                return reader.ReadObjectValue();
-            }
-
-            public override ValueTask<object?> GetValueAsync(JsonDataReader reader)
-            {
-                return new ValueTask<object?>(GetValue(reader));
-            }
-        }
-
-        private class SpanParsableFieldReader<TValue> : FieldReader
-            where TValue : ISpanParsable<TValue>
-        {
-            public static readonly SpanParsableFieldReader<TValue> Instance = new SpanParsableFieldReader<TValue>();
-
-            public override object? GetValue(JsonDataReader reader)
-            {
-                if (reader.TokenReader.TryGetTokenValueAs<TValue>(out var tvalue))
-                {
-                    return tvalue;
-                }
-
-                return null;
-            }
-
-            public override ValueTask<object?> GetValueAsync(JsonDataReader reader)
-            {
-                return new ValueTask<object?>(GetValue(reader));
-            }
-        }
-
-        private class StringParsableFieldReader<TValue> : FieldReader
-            where TValue : IParsable<TValue>
-        {
-            public static readonly StringParsableFieldReader<TValue> Instance = new StringParsableFieldReader<TValue>();
-
-            public override object? GetValue(JsonDataReader reader)
-            {
-                var value = reader.TokenReader.GetTokenValue();
-                if (TValue.TryParse(value, null, out var result))
-                    return result;
-                return null;
-            }
-
-            public override async ValueTask<object?> GetValueAsync(JsonDataReader reader)
-            {
-                var value = await reader.TokenReader.GetTokenValueAsync();
-                if (TValue.TryParse(value, null, out var result))
-                    return result;
-                return null;
-            }
-        }
     }
 }

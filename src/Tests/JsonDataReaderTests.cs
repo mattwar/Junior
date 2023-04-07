@@ -16,7 +16,7 @@ namespace Tests
             await TestDataReaderAsync(
             """
                 {
-                    "name": "Testy",
+                    "name": "Test",
                     "columns":
                     [
                         { "name": "Id", "type": "long" },
@@ -25,20 +25,20 @@ namespace Tests
                     ], 
                     "rows": 
                     [
-                        [1, "Matt", 3.2], 
-                        [2, "Alex", 5.4]
+                        [1, "Tom", 3.2], 
+                        [2, "Mot", 5.4]
                     ]
                 }
                 """,
-            new Table("Testy",
+            new Table("Test",
                 new[] {
                     new Column("Id", "long"),
                     new Column("Name", "string"),
                     new Column("Data", "double")},
                 new[]
                 {
-                    new Row(1L, "Matt", 3.2),
-                    new Row(2L, "Alex", 5.4)
+                    new Row(1L, "Tom", 3.2),
+                    new Row(2L, "Mot", 5.4)
                 }));
         }
 
@@ -49,7 +49,7 @@ namespace Tests
 
         private async Task TestDataReaderAsync(string json, TableSet expectedTableSet)
         {
-            var reader = new JsonDataReader(json);           
+            var reader = new JsonDataReader(JsonTokenReader.Create(new StringReader(json)));
             var tables = new List<Table>();
 
             while (await reader.MoveToNextTableAsync())
@@ -69,7 +69,7 @@ namespace Tests
                     
                     while (await reader.MoveToNextFieldAsync())
                     {
-                        var value = reader.ReadFieldValue();
+                        var value = await reader.ReadFieldValueAsync();
                         values.Add(value);
                     }
 
