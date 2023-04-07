@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Junior;
+using static Tests.TestHelpers;
 
 namespace Tests
 {
@@ -81,49 +82,7 @@ namespace Tests
 
             var actualTableSet = new TableSet(tables);
 
-            AssertAreEqual(expectedTableSet, actualTableSet);
-        }
-
-        private static void AssertAreEqual(TableSet expected, TableSet actual)
-        {
-            Assert.AreEqual(expected.Tables.Count, actual.Tables.Count, "table count");
-
-            for (int i = 0; i < expected.Tables.Count; i++)
-            {
-                AssertAreEqual(expected.Tables[i], actual.Tables[i]);
-            }
-        }
-
-        private static void AssertAreEqual(Table expected, Table actual)
-        {
-            Assert.AreEqual(expected.Name, actual.Name, "table name");
-            
-            Assert.AreEqual(expected.Columns.Count, actual.Columns.Count, "columns count");
-            for (int i = 0; i < expected.Columns.Count; i++)
-            {
-                AssertAreEqual(expected.Columns[i], actual.Columns[i]);
-            }
-
-            Assert.AreEqual(expected.Rows.Count, actual.Rows.Count, "rows count");
-            for (int i = 0; i < expected.Rows.Count; i++)
-            {
-                AssertAreEqual(expected.Rows[i], actual.Rows[i]);
-            }
-        }
-
-        private static void AssertAreEqual(Column expected, Column actual)
-        {
-            Assert.AreEqual(expected.Name, actual.Name, "column name");
-            Assert.AreEqual(expected.Type, actual.Type, "column type");
-        }
-
-        private static void AssertAreEqual(Row expected, Row actual)
-        {
-            Assert.AreEqual(expected.Values.Count, actual.Values.Count, "field count");
-            for (int i = 0; i < expected.Values.Count; i++)
-            {
-                Assert.AreEqual(expected.Values[i], actual.Values[i], "field value");
-            }
+            AssertStructurallyEqual(expectedTableSet, actualTableSet);
         }
 
         private record Row(IReadOnlyList<object?> Values)

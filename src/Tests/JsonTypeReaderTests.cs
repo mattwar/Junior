@@ -1,10 +1,5 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Junior;
+﻿using Junior;
+using static Tests.TestHelpers;
 
 namespace Tests
 {
@@ -12,112 +7,112 @@ namespace Tests
     public class JsonTypeReaderTests
     {
         [TestMethod]
-        public void TestAny()
+        public async Task TestAny()
         {
-            TestTypeReader("\"abc\"", "abc", JsonAnyReader.Instance);
-            TestTypeReader("123", 123, JsonAnyReader.Instance);
-            TestTypeReader("true", true, JsonAnyReader.Instance);
-            TestTypeReader("false", false, JsonAnyReader.Instance);
-            TestTypeReader("null", null, JsonAnyReader.Instance);
-            TestTypeReader("[1, 2, 3]", new object[] { 1, 2, 3 }, JsonAnyReader.Instance);
-            TestTypeReader("{\"x\": 1}", new Dictionary<string, object?> { { "x", 1 } }, JsonAnyReader.Instance);
+            await TestTypeReaderAsync("\"abc\"", "abc", JsonAnyReader.Instance);
+            await TestTypeReaderAsync("123", 123, JsonAnyReader.Instance);
+            await TestTypeReaderAsync("true", true, JsonAnyReader.Instance);
+            await TestTypeReaderAsync("false", false, JsonAnyReader.Instance);
+            await TestTypeReaderAsync("null", null, JsonAnyReader.Instance);
+            await TestTypeReaderAsync("[1, 2, 3]", new object[] { 1, 2, 3 }, JsonAnyReader.Instance);
+            await TestTypeReaderAsync("{\"x\": 1}", new Dictionary<string, object?> { { "x", 1 } }, JsonAnyReader.Instance);
         }
 
         [TestMethod]
-        public void TestString()
+        public async Task TestString()
         {
-            TestTypeReader("\"abc\"", "abc");
-            TestTypeReader("123", "123");
-            TestTypeReader("true", "true");
-            TestTypeReader("false", "false");
-            TestTypeReader<string?>("null", null);
-            TestTypeReader<string?>("[]", null);
-            TestTypeReader<string?>("{}", null);
+            await TestTypeReaderAsync("\"abc\"", "abc");
+            await TestTypeReaderAsync("123", "123");
+            await TestTypeReaderAsync("true", "true");
+            await TestTypeReaderAsync("false", "false");
+            await TestTypeReaderAsync<string?>("null", null);
+            await TestTypeReaderAsync<string?>("[]", null);
+            await TestTypeReaderAsync<string?>("{}", null);
         }
 
         [TestMethod]
-        public void TestBool()
+        public async Task TestBool()
         {
-            TestTypeReader("true", true);
-            TestTypeReader("false", false);
-            TestTypeReader("null", false);
-            TestTypeReader("\"True\"", true);
-            TestTypeReader("\"true\"", true);
-            TestTypeReader("\"false\"", false);
-            TestTypeReader("\"abc\"", false);
-            TestTypeReader("123", false);
-            TestTypeReader("0", false);
-            TestTypeReader("[]", false);
-            TestTypeReader("{}", false);
+            await TestTypeReaderAsync("true", true);
+            await TestTypeReaderAsync("false", false);
+            await TestTypeReaderAsync("null", false);
+            await TestTypeReaderAsync("\"True\"", true);
+            await TestTypeReaderAsync("\"true\"", true);
+            await TestTypeReaderAsync("\"false\"", false);
+            await TestTypeReaderAsync("\"abc\"", false);
+            await TestTypeReaderAsync("123", false);
+            await TestTypeReaderAsync("0", false);
+            await TestTypeReaderAsync("[]", false);
+            await TestTypeReaderAsync("{}", false);
 
-            TestTypeReader("null", (bool?)null);
+            await TestTypeReaderAsync("null", (bool?)null);
         }
 
         [TestMethod]
-        public void TestNumbers()
+        public async Task TestNumbers()
         {
             // byte
-            TestTypeReader("1", (byte)1);
-            TestTypeReader($"{byte.MaxValue}", byte.MaxValue);
-            TestTypeReader($"{byte.MinValue}", byte.MinValue);
-            TestTypeReader("\"1\"", (byte)1);
-            TestTypeReader("null", (byte)0);
-            TestTypeReader("null", (byte?)null);
-            TestTypeReader("256", (byte)0);  // TODO: deal with parsing failure??
+            await TestTypeReaderAsync("1", (byte)1);
+            await TestTypeReaderAsync($"{byte.MaxValue}", byte.MaxValue);
+            await TestTypeReaderAsync($"{byte.MinValue}", byte.MinValue);
+            await TestTypeReaderAsync("\"1\"", (byte)1);
+            await TestTypeReaderAsync("null", (byte)0);
+            await TestTypeReaderAsync("null", (byte?)null);
+            await TestTypeReaderAsync("256", (byte)0);  // TODO: deal with parsing failure??
 
             // int16
-            TestTypeReader("1", (short)1);
-            TestTypeReader($"{Int16.MaxValue}", Int16.MaxValue);
-            TestTypeReader($"{Int16.MinValue}", Int16.MinValue);
-            TestTypeReader("\"1\"", (short)1);
-            TestTypeReader("null", (short)0);
-            TestTypeReader("null", (short?)null);
+            await TestTypeReaderAsync("1", (short)1);
+            await TestTypeReaderAsync($"{Int16.MaxValue}", Int16.MaxValue);
+            await TestTypeReaderAsync($"{Int16.MinValue}", Int16.MinValue);
+            await TestTypeReaderAsync("\"1\"", (short)1);
+            await TestTypeReaderAsync("null", (short)0);
+            await TestTypeReaderAsync("null", (short?)null);
 
             // int32
-            TestTypeReader("1", 1);
-            TestTypeReader($"{Int32.MaxValue}", Int32.MaxValue);
-            TestTypeReader($"{Int32.MinValue}", Int32.MinValue);
-            TestTypeReader("\"1\"", 1);
-            TestTypeReader("null", (int?)null);
+            await TestTypeReaderAsync("1", 1);
+            await TestTypeReaderAsync($"{Int32.MaxValue}", Int32.MaxValue);
+            await TestTypeReaderAsync($"{Int32.MinValue}", Int32.MinValue);
+            await TestTypeReaderAsync("\"1\"", 1);
+            await TestTypeReaderAsync("null", (int?)null);
 
             // int64
-            TestTypeReader("1", 1L);
-            TestTypeReader($"{Int64.MaxValue}", Int64.MaxValue);
-            TestTypeReader($"{Int64.MinValue}", Int64.MinValue);
-            TestTypeReader("\"1\"", 1L);
-            TestTypeReader("null", (long)0);
-            TestTypeReader("null", (long?)null);
+            await TestTypeReaderAsync("1", 1L);
+            await TestTypeReaderAsync($"{Int64.MaxValue}", Int64.MaxValue);
+            await TestTypeReaderAsync($"{Int64.MinValue}", Int64.MinValue);
+            await TestTypeReaderAsync("\"1\"", 1L);
+            await TestTypeReaderAsync("null", (long)0);
+            await TestTypeReaderAsync("null", (long?)null);
 
             // double
-            TestTypeReader("1", 1.0);
-            TestTypeReader("1.0", 1.0);
-            TestTypeReader("\"1\"", 1.0);
-            TestTypeReader("\"1.0\"", 1.0);
-            TestTypeReader("null", (double)0);
-            TestTypeReader("null", (double?)null);
+            await TestTypeReaderAsync("1", 1.0);
+            await TestTypeReaderAsync("1.0", 1.0);
+            await TestTypeReaderAsync("\"1\"", 1.0);
+            await TestTypeReaderAsync("\"1.0\"", 1.0);
+            await TestTypeReaderAsync("null", (double)0);
+            await TestTypeReaderAsync("null", (double?)null);
 
             // decimal
-            TestTypeReader("1", 1m);
-            TestTypeReader("1.0", 1m);
-            TestTypeReader("\"1\"", 1m);
-            TestTypeReader("\"1.0\"", 1.0);
-            TestTypeReader("null", (decimal)0);
-            TestTypeReader("null", (decimal?)null);
+            await TestTypeReaderAsync("1", 1m);
+            await TestTypeReaderAsync("1.0", 1m);
+            await TestTypeReaderAsync("\"1\"", 1m);
+            await TestTypeReaderAsync("\"1.0\"", 1.0);
+            await TestTypeReaderAsync("null", (decimal)0);
+            await TestTypeReaderAsync("null", (decimal?)null);
         }
 
         [TestMethod]
-        public void TestLists()
+        public async Task TestLists()
         {
-            TestTypeReader("[1, 2, 3]", new[] { 1, 2, 3 });
-            TestTypeReader("[1, 2, 3]", new List<int> { 1, 2, 3 });
-            TestTypeReader<IEnumerable<int>>("[1, 2, 3]", new List<int> { 1, 2, 3 });
-            TestTypeReader("[1, 2, 3]", new TestAddList<int> { 1, 2, 3 });
-            TestTypeReader("[1, 2, 3]", new TestListConstructable<int>(new [] { 1, 2, 3 }));
+            await TestTypeReaderAsync("[1, 2, 3]", new[] { 1, 2, 3 });
+            await TestTypeReaderAsync("[1, 2, 3]", new List<int> { 1, 2, 3 });
+            await TestTypeReaderAsync<IEnumerable<int>>("[1, 2, 3]", new List<int> { 1, 2, 3 });
+            await TestTypeReaderAsync("[1, 2, 3]", new TestAddList<int> { 1, 2, 3 });
+            await TestTypeReaderAsync("[1, 2, 3]", new TestListConstructable<int>(new [] { 1, 2, 3 }));
         }
 
-        public class TestAddList<T> : List<T> 
-        { 
-            public TestAddList() { } 
+        public class TestAddList<T> : List<T>
+        {
+            public TestAddList() { }
         }
 
         public class TestListConstructable<T>
@@ -130,66 +125,83 @@ namespace Tests
             public IReadOnlyList<T> Values { get; }
         }
 
-
-        private void TestTypeReader<T>(string json, T? expectedValue, JsonTypeReader<T>? reader = null)
+        [TestMethod]
+        public async Task TestJsonValue()
         {
-            var tokenReader = JsonTokenReader.Create(new StringReader(json));
+            await TestTypeReaderAsync("true", JsonTrue.Instance, JsonValueReader.Instance);
+            await TestTypeReaderAsync("false", JsonFalse.Instance, JsonValueReader.Instance);
+            await TestTypeReaderAsync("null", JsonNull.Instance, JsonValueReader.Instance);
+            await TestTypeReaderAsync("10", new JsonNumber("10"), JsonValueReader.Instance);
+            await TestTypeReaderAsync("\"abc\"", new JsonString("abc"), JsonValueReader.Instance);
+
+            await TestTypeReaderAsync("[1, 2, 3]",
+                new JsonList(
+                    new JsonNumber("1"),
+                    new JsonNumber("2"),
+                    new JsonNumber("3")),
+                JsonValueReader.Instance);
+
+            await TestTypeReaderAsync(IdNameJsonText,
+                new JsonObject(
+                    new JsonProperty("id", new JsonNumber("123")),
+                    new JsonProperty("name", new JsonString("Mot"))),
+                JsonValueReader.Instance);
+        }
+
+        [TestMethod]
+        public async Task TestClass()
+        {
+            await TestTypeReaderAsync(IdNameJsonText, new TestInitializedRecord { Id = 123, Name = "Mot" });
+            await TestTypeReaderAsync(IdNameJsonText, new TestParameterizedRecord(123, "Mot"));
+            await TestTypeReaderAsync(IdNameJsonText, new TestParameterizedAndInitializedRecord(123) { Name = "Mot" });
+        }
+
+        private static readonly string IdNameJsonText =
+            """
+                { 
+                    "id" : 123,
+                    "name": "Mot"
+                }
+                """;
+
+        public record TestParameterizedRecord(int Id, string Name);
+
+        public record TestInitializedRecord
+        {
+            public int Id { get; init; }
+            public string Name { get; init; } = null!;
+        }
+
+        public record TestParameterizedAndInitializedRecord(int Id)
+        {
+            public string Name { get; init; } = null!;
+        }
+
+        private async ValueTask TestTypeReaderAsync<T>(string json, T? expectedValue, JsonTypeReader<T>? reader = null)
+        {
             reader = reader ?? (JsonTypeReader<T>?)JsonTypeReader.GetReader(typeof(T));
+
+            var tokenReader = await JsonTokenReader.CreateAsync(new StringReader(json));
+            Assert.IsNotNull(reader);
+
+            var actualValue = await reader.ReadAsync(tokenReader);
+
+            AssertStructurallyEqual(expectedValue, actualValue);
+
+            // also test sync
+            TestTypeReaderSync(json, expectedValue, reader);
+        }
+
+        private void TestTypeReaderSync<T>(string json, T? expectedValue, JsonTypeReader<T>? reader = null)
+        {
+            reader = reader ?? (JsonTypeReader<T>?)JsonTypeReader.GetReader(typeof(T));
+
+            var tokenReader = JsonTokenReader.Create(new StringReader(json));
             Assert.IsNotNull(reader);
 
             var actualValue = reader.Read(tokenReader);
 
             AssertStructurallyEqual(expectedValue, actualValue);
-        }
-
-        private static void AssertStructurallyEqual(object? expected, object? actual)
-        {
-            if (object.Equals(expected, actual)) 
-                return;
-
-            if (expected == null)
-                Assert.Fail($"Expected null not: {actual}");
-
-            var expectedType = expected.GetType();
-            var actualType = actual?.GetType();
-            Assert.AreEqual(expectedType, actualType, "type");
-
-            if (expected.GetType().IsPrimitive)
-            {
-                Assert.AreEqual(expected, actual);
-            }
-            else if (expected is IEnumerable expectedIE 
-                && actual is IEnumerable actualIE)
-            {
-                var expectedList = expectedIE.OfType<object>().ToList();
-                var actualList = actualIE.OfType<object>().ToList();
-                Assert.AreEqual(expectedList.Count, actualList.Count, "list count");
-                for (int i = 0; i < expectedList.Count; i++)
-                {
-                    AssertStructurallyEqual(expectedList[i], actualList[i]);
-                }
-            }
-            else if (expected is IDictionary expectedD
-                && actual is IDictionary actualD)
-            {
-                Assert.AreEqual(expectedD.Values.Count, actualD.Values.Count, "dictionary count");
-                foreach (var key in expectedD.Keys.OfType<object>())
-                {
-                    var expectedValue = expectedD[key];
-                    var actualValue = actualD[key];
-                    AssertStructurallyEqual(expectedValue, actualValue);
-                }
-            }
-            else
-            {
-                var props = expectedType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                foreach (var p in props)
-                {
-                    var expectedPropValue = p.GetValue(expected, null);
-                    var actualPropValue = p.GetValue(actual, null);
-                    AssertStructurallyEqual(expectedPropValue, actualPropValue);
-                }
-            }
         }
     }
 }

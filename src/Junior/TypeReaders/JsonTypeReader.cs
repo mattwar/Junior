@@ -273,37 +273,74 @@ namespace Junior
             // type has default constructor and assignable properties?
             if (HasPublicDefaultConstructor(type))
             {
-                var memberWriters = type
+                var members = type
                     .GetProperties(BindingFlags.Public | BindingFlags.Instance)
                     .Where(p => p.CanWrite)
-                    .Select(p => CreateMemberWriter(type, p))
-                    .ToArray();
+                    .Select(p => CreateMemberInitializer(type, p))
+                    .Where(p => p != null)
+                    .ToList();
 
-                if (memberWriters.Length > 0
-                    && memberWriters.All(m => m != null))
+                if (members.Count > 0)
                 {
                     return (JsonTypeReader?)Activator.CreateInstance(
-                        typeof(JsonClassReader<>).MakeGenericType(type), 
-                        memberWriters);
+                        typeof(JsonClassInitializedReader<>).MakeGenericType(type), 
+                        new object[] { members });
                 }
+            }
+            else if (GetPublicPropertyConstructor(type) is ConstructorInfo constructor)
+            {
+                var parameters =
+                    constructor.GetParameters()
+                    .Select(p => CreateConstructorParameter(p))
+                    .ToList();
+
+                if (parameters.Any(p => p == null))
+                    return null;
+
+                // additional assignable members
+                var names = parameters.Select(p => p!.Name).ToHashSet();
+                var members = type
+                    .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                    .Where(p => p.CanWrite && !names.Contains(p.Name))
+                    .Select(p => CreateMemberInitializer(type, p))
+                    .Where(p => p != null)
+                    .ToList();
+
+                if (members.Any(m => m == null))
+                    return null;
+
+                var fnConstruct = CreateObjectArrayDelegate(constructor);
+
+                return (JsonTypeReader?)Activator.CreateInstance(
+                    typeof(JsonClassReader<>).MakeGenericType(type),
+                    new object[] { parameters, members, fnConstruct });
+            }
+
+            return null;
+        }
+
+        public static JsonConstructorParameter? CreateConstructorParameter(ParameterInfo parameter)
+        {
+            var reader = GetReader(parameter.ParameterType);
+            if (reader != null)
+            {
+                return new JsonConstructorParameter(parameter.Name!, reader);
             }
 
             return null;
         }
 
         /// <summary>
-        /// Creates a <see cref="JsonClassMemberWriter"/> for a property.
+        /// Creates a <see cref="JsonMemberInitializer"/> for a property.
         /// </summary>
-        private static JsonClassMemberWriter? CreateMemberWriter(Type type, PropertyInfo property)
+        private static JsonMemberInitializer? CreateMemberInitializer(Type type, PropertyInfo property)
         {
             if (GetReader(property.PropertyType) is JsonTypeReader propertyReader)
             {
                 var propertySetter = CreatePropertySetterDelegate(type, property);
-                return (JsonClassMemberWriter?)Activator.CreateInstance(
-                    typeof(JsonClassMemberWriter<,>).MakeGenericType(type, property.PropertyType),
-                        property.Name,
-                        propertyReader,
-                        propertySetter);
+                return (JsonMemberInitializer?)Activator.CreateInstance(
+                    typeof(JsonMemberInitializer<,>).MakeGenericType(type, property.PropertyType),
+                        new object[] { property.Name, propertyReader, propertySetter });
             }
 
             return null;
@@ -312,12 +349,27 @@ namespace Junior
         /// <summary>
         /// Creates a delgate that will invoke a constructor.
         /// </summary>
-        private static Delegate CreateConstructorDelegate(ConstructorInfo constructor, Type[] argTypes)
+        private static Delegate CreateConstructorDelegate(ConstructorInfo constructor, Type[] delegateArgTypes)
         {
             var constructorParameters = constructor.GetParameters();
-            var lambdaParameters = constructorParameters.Select((p, i) => Expression.Parameter(argTypes[i], p.Name)).ToArray();
+            var lambdaParameters = constructorParameters.Select((p, i) => Expression.Parameter(delegateArgTypes[i], p.Name)).ToArray();
             var args = lambdaParameters.Select((p, i) => Expression.Convert(p, constructorParameters[i].ParameterType)).ToArray();
             var lambda = Expression.Lambda(Expression.New(constructor, args), lambdaParameters);
+            return lambda.Compile();
+        }
+
+        /// <summary>
+        /// Creates a delgate that will invoke a constructor with array of object for parameters
+        /// </summary>
+        private static Delegate CreateObjectArrayDelegate(ConstructorInfo constructor)
+        {
+            var constructorParameters = constructor.GetParameters();
+            var arrayParam = Expression.Parameter(typeof(object[]), "paramArray");
+            var args = constructorParameters.Select((p, i) => 
+                Expression.Convert(
+                    Expression.ArrayIndex(arrayParam, Expression.Constant(i)), 
+                    p.ParameterType)).ToArray();
+            var lambda = Expression.Lambda(Expression.New(constructor, args), arrayParam);
             return lambda.Compile();
         }
 
@@ -328,7 +380,9 @@ namespace Junior
         {
             var instance = Expression.Parameter(type, "instance");
             var value = Expression.Parameter(property.PropertyType, "value");
+            var delegateType = typeof(Action<,>).MakeGenericType(type, property.PropertyType);
             var lambda = Expression.Lambda(
+                delegateType,
                 Expression.Assign(Expression.Property(instance, property), value),
                 new[] { instance, value });
             return lambda.Compile();
@@ -343,6 +397,32 @@ namespace Junior
                 || type.GetConstructors()
                        .FirstOrDefault(c => c.GetParameters().Length == 0) 
                        != null;
+        }
+
+        /// <summary>
+        /// Returns the public constructor with most parameters where all the 
+        /// arguments correspond to public properties.
+        /// </summary>
+        private static ConstructorInfo? GetPublicPropertyConstructor(Type type)
+        {
+            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+
+            bool HasMatchingProperty(ParameterInfo param) =>
+                properties?.FirstOrDefault(p => 
+                    string.Compare(p.Name, param.Name, StringComparison.OrdinalIgnoreCase) == 0
+                    && param.ParameterType == p.PropertyType) != null;
+
+            // constructors with parameters that correspond to properties
+            var propConstructors = type.GetConstructors()
+                .Select(c => (Constructor: c, Parameters: c.GetParameters()))
+                .Where(x => x.Parameters.All(pm => HasMatchingProperty(pm) && GetReader(pm.ParameterType) != null))
+                .ToList();
+
+            var best = propConstructors
+                .OrderByDescending(x => x.Parameters.Length)
+                .FirstOrDefault();
+
+            return best.Constructor;
         }
 
         /// <summary>
