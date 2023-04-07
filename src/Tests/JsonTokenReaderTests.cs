@@ -1,4 +1,5 @@
 using Junior;
+using static Tests.TestHelpers;
 
 namespace Tests
 {
@@ -115,6 +116,49 @@ namespace Tests
             await TestLargeValueAsync(
                 "\"AAAAAAAAAA\\nBBBBBBBBBB\\nCCCCCCCCCC\\nDDDDDDDDDD\\nEEEEEEEEEE\\nFFFFFFFFFF\\nGGGGGGGGGG\"",
                 "AAAAAAAAAA\nBBBBBBBBBB\nCCCCCCCCCC\nDDDDDDDDDD\nEEEEEEEEEE\nFFFFFFFFFF\nGGGGGGGGGG");
+        }
+
+        [TestMethod]
+        public async Task TestLargeStringLengths()
+        {
+            await TestHugeString(stringSize: 512, bufferSize: 1024);
+            await TestHugeString(stringSize: 512, bufferSize: 256);
+            await TestHugeString(stringSize: 8000, bufferSize: 256);
+            await TestHugeString(stringSize: 1024*1024, bufferSize: 1024);
+        }
+
+        private async ValueTask TestHugeString(int stringSize, int bufferSize)
+        {
+            TestHugeStringSync(stringSize, bufferSize);
+            await TestHugeStringAsync(stringSize, bufferSize);
+        }
+
+        private void TestHugeStringSync(int stringSize, int bufferSize)
+        {
+            var textReader = GetJsonWithLargeString("", stringSize, "");
+            var tokenReader = JsonTokenReader.Create(textReader, bufferSize);
+
+            int actualSize = 0;
+            while (tokenReader.ReadNextSpan())
+            {
+                actualSize += tokenReader.CurrentValueSpan.Length;
+            }
+
+            Assert.AreEqual(stringSize, actualSize, "string size read");
+        }
+
+        private async ValueTask TestHugeStringAsync(int stringSize, int bufferSize)
+        {
+            var textReader = GetJsonWithLargeString("", stringSize, "");
+            var tokenReader = JsonTokenReader.Create(textReader, bufferSize);
+
+            int actualSize = 0;
+            while (await tokenReader.ReadNextSpanAsync())
+            {
+                actualSize += tokenReader.CurrentValueSpan.Length;
+            }
+
+            Assert.AreEqual(stringSize, actualSize, "string size read");
         }
 
         [TestMethod]

@@ -31,7 +31,7 @@ namespace Junior
 
             var list = _fnCreate();
 
-            while (reader.ReadNextTokenChars())
+            while (reader.ReadNextSpan())
             {
                 _fnAdd(list, reader.CurrentValueSpan);
             }
@@ -48,7 +48,7 @@ namespace Junior
 
             var list = _fnCreate();
 
-            while (await reader.ReadNextTokenCharsAsync().ConfigureAwait(false))
+            while (await reader.ReadNextSpanAsync().ConfigureAwait(false))
             {
                 _fnAdd(list, reader.CurrentValueSpan);
             }

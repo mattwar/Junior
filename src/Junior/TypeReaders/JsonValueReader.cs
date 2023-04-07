@@ -224,6 +224,7 @@
         }
     }
 
+    [JsonTypeReader(typeof(JsonValueReader))]
     public abstract record JsonValue { }
     public sealed record JsonString(string Value) : JsonValue;
     public sealed record JsonNumber(string Number) : JsonValue;

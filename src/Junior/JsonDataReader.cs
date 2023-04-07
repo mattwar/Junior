@@ -308,7 +308,7 @@
 
         public ValueTask<bool> ReadNextFieldValueSpan()
         {
-            return _tokenReader.ReadNextTokenValueCharsAsync();
+            return _tokenReader.ReadNextSpanAsync();
         }
 
         private record ColumnSchema(string Name, string Type);

@@ -1,4 +1,6 @@
-﻿namespace Junior
+﻿using System.Diagnostics.CodeAnalysis;
+
+namespace Junior
 {
     public class JsonAnyReader : JsonTypeReader<object>
     {
@@ -23,22 +25,22 @@
                 case TokenKind.String:
                     return reader.ReadTokenValue();
                 case TokenKind.Number:
-                    if (reader.TryGetTokenValueAs<int>(out var intValue))
+                    if (TryGetTokenValueAs<int>(reader, out var intValue))
                     {
                         reader.MoveToNextToken();
                         return intValue;
                     }
-                    else if (reader.TryGetTokenValueAs<long>(out var longValue))
+                    else if (TryGetTokenValueAs<long>(reader, out var longValue))
                     {
                         reader.MoveToNextToken();
                         return longValue;
                     }
-                    else if (reader.TryGetTokenValueAs<double>(out var doubleValue))
+                    else if (TryGetTokenValueAs<double>(reader, out var doubleValue))
                     {
                         reader.MoveToNextToken();
                         return doubleValue;
                     }
-                    else if (reader.TryGetTokenValueAs<decimal>(out var decimalValue))
+                    else if (TryGetTokenValueAs<decimal>(reader, out var decimalValue))
                     {
                         reader.MoveToNextToken();
                         return decimalValue;
@@ -134,22 +136,22 @@
                 case TokenKind.String:
                     return await reader.ReadTokenValueAsync().ConfigureAwait(false);
                 case TokenKind.Number:
-                    if (reader.TryGetTokenValueAs<int>(out var intValue))
+                    if (TryGetTokenValueAs<int>(reader, out var intValue))
                     {
                         await reader.MoveToNextTokenAsync().ConfigureAwait(false);
                         return intValue;
                     }
-                    else if (reader.TryGetTokenValueAs<long>(out var longValue))
+                    else if (TryGetTokenValueAs<long>(reader, out var longValue))
                     {
                         await reader.MoveToNextTokenAsync().ConfigureAwait(false);
                         return longValue;
                     }
-                    else if (reader.TryGetTokenValueAs<double>(out var doubleValue))
+                    else if (TryGetTokenValueAs<double>(reader, out var doubleValue))
                     {
                         await reader.MoveToNextTokenAsync().ConfigureAwait(false);
                         return doubleValue;
                     }
-                    else if (reader.TryGetTokenValueAs<decimal>(out var decimalValue))
+                    else if (TryGetTokenValueAs<decimal>(reader, out var decimalValue))
                     {
                         await reader.MoveToNextTokenAsync().ConfigureAwait(false);
                         return decimalValue;
@@ -224,5 +226,24 @@
 
             return null;
         }
+
+        /// <summary>
+        /// Gets the current token value as the type <see cref="TValue"/>,
+        /// if it is available in the buffer.
+        /// </summary>
+        public bool TryGetTokenValueAs<TValue>(JsonTokenReader reader, [MaybeNullWhen(false)] out TValue value)
+            where TValue : ISpanParsable<TValue>
+        {
+            if (reader.TokenInBuffer)
+            {
+                return TValue.TryParse(reader.CurrentValueSpan, null, out value);
+            }
+            else
+            {
+                value = default;
+                return false;
+            }
+        }
+
     }
 }

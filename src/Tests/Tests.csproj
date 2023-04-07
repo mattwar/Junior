@@ -24,4 +24,8 @@
     <ProjectReference Include="..\Junior\Junior.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Files\" />
+  </ItemGroup>
+
 </Project>

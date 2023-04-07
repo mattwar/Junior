@@ -7,6 +7,9 @@ using System.Text;
 
 namespace Junior
 {
+    /// <summary>
+    /// A class that reads and constructs types from <see cref="JsonTokenReader"/>.
+    /// </summary>
     public abstract class JsonTypeReader
     {
         public abstract object? ReadObject(JsonTokenReader reader);
@@ -26,14 +29,20 @@ namespace Junior
             return s_typeReader.GetOrAdd(type, CreateTypeReader);
         }
 
+        /// <summary>
+        /// Create a <see cref="JsonTypeReader"/> for the specified type.
+        /// </summary>
         private static JsonTypeReader? CreateTypeReader(Type type)
         {
             return CreateNullableReader(type)
+                ?? GetReaderFromAttribute(type)
                 ?? CreateDictionaryAssignableReader(type)
                 ?? CreateListAssignableReader(type)
                 ?? CreateArrayAssignableReader(type)
                 ?? CreateDictionaryAddReader(type)
+                ?? CreateImmutableDictionaryReader(type)
                 ?? CreateListAddReader(type)
+                ?? CreateImmutableListReader(type)
                 ?? CreateClassReader(type)
                 ?? CreateDictionaryConstructableReader(type)
                 ?? CreateListConstructableReader(type)
@@ -43,7 +52,30 @@ namespace Junior
         }
 
         /// <summary>
-        /// Creates a reader for nullable struct types.
+        /// Finds the corresponding <see cref="JsonTypeReader"/> designated by the
+        /// attribute <see cref="JsonTypeReaderAttribute"/>.
+        /// </summary>
+        private static JsonTypeReader? GetReaderFromAttribute(Type type)
+        {
+            // look for custom attribute designating the reader to use.
+            var attr = type.GetCustomAttribute<JsonTypeReaderAttribute>();
+            if (attr != null)
+            {
+                // if it has a singleton instance field, use that
+                if (attr.ReaderType.GetField("Instance", BindingFlags.Public | BindingFlags.Static) is FieldInfo field
+                    && field.GetValue(null) is JsonTypeReader instance)
+                    return instance;
+
+                // otherwise construct a new instance if there is a default constructor
+                if (HasPublicDefaultConstructor(attr.ReaderType))
+                    return Activator.CreateInstance(attr.ReaderType) as JsonTypeReader;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Creates a <see cref="JsonTypeReader"/> for nullable struct types.
         /// </summary>
         private static JsonTypeReader? CreateNullableReader(Type type)
         {
@@ -59,7 +91,7 @@ namespace Junior
         }
 
         /// <summary>
-        /// Creates a reader for types that can be parsed from spans.
+        /// Creates a <see cref="JsonTypeReader"/> for types that can be parsed from spans.
         /// </summary>
         private static JsonTypeReader? CreateSpanParsableReader(Type type)
         {
@@ -75,7 +107,7 @@ namespace Junior
         }
 
         /// <summary>
-        /// Creates a reader for types that can be parsed from strings.
+        /// Creates a <see cref="JsonTypeReader"/> for types that can be parsed from strings.
         /// </summary>
         private static JsonTypeReader? CreateStringParsableReader(Type type)
         {
@@ -91,7 +123,7 @@ namespace Junior
         }
 
         /// <summary>
-        /// Creates a reader for types that can be assigned a list.
+        /// Creates a <see cref="JsonTypeReader"/> for types that can be assigned a list.
         /// </summary>
         private static JsonTypeReader? CreateListAssignableReader(Type type)
         {
@@ -111,7 +143,7 @@ namespace Junior
         }
 
         /// <summary>
-        /// Creates a reader for a type that can be assigned an array.
+        /// Creates a <see cref="JsonTypeReader"/> for a type that can be assigned an array.
         /// </summary>
         private static JsonTypeReader? CreateArrayAssignableReader(Type type)
         {
@@ -130,10 +162,8 @@ namespace Junior
             return null;
         }
 
-
-
         /// <summary>
-        /// Creates a reader for types that can be constructed from a list.
+        /// Creates a <see cref="JsonTypeReader"/> for types that can be constructed from a list.
         /// </summary>
         private static JsonTypeReader? CreateListConstructableReader(Type type)
         {
@@ -152,7 +182,7 @@ namespace Junior
         }
 
         /// <summary>
-        /// Creates a reader for types that are list-like and have an Add method.
+        /// Creates a <see cref="JsonTypeReader"/> for types that are list-like and have an Add method.
         /// </summary>
         private static JsonTypeReader? CreateListAddReader(Type type)
         {
@@ -178,7 +208,7 @@ namespace Junior
         }
 
         /// <summary>
-        /// Creates a reader for types that can be assigned dictionary.
+        /// Creates a <see cref="JsonTypeReader"/> for types that can be assigned dictionary.
         /// </summary>
         private static JsonTypeReader? CreateDictionaryAssignableReader(Type type)
         {
@@ -200,7 +230,7 @@ namespace Junior
         }
 
         /// <summary>
-        /// Creates a reader for dictionary-like types with an Add method.
+        /// Creates a <see cref="JsonTypeReader"/> for dictionary-like types with an Add method.
         /// </summary>
         private static JsonTypeReader? CreateDictionaryAddReader(Type type)
         {
@@ -229,7 +259,7 @@ namespace Junior
         }
 
         /// <summary>
-        /// Creates a reader for types that can be constructed from a dictionary.
+        /// Creates a <see cref="JsonTypeReader"/> for types that can be constructed from a dictionary.
         /// </summary>
         private static JsonTypeReader? CreateDictionaryConstructableReader(Type type)
         {
@@ -250,13 +280,24 @@ namespace Junior
         }
 
         /// <summary>
-        /// Creates a reader for immutable types that follow the immutable construction pattern.
+        /// Creates a <see cref="JsonTypeReader"/> for immutable dictionary types that follow the immutable construction pattern.
         /// </summary>
         private static JsonTypeReader? CreateImmutableDictionaryReader(Type type)
         {
             return null;
         }
 
+        /// <summary>
+        /// Creates a <see cref="JsonTypeReader"/> for immutable list that follow the immutable construction pattern.
+        /// </summary>
+        private static JsonTypeReader? CreateImmutableListReader(Type type)
+        {
+            return null;
+        }
+
+        /// <summary>
+        /// Creates a <see cref="JsonTypeReader"/> for types that can be constructed with a string.
+        /// </summary>
         public static JsonTypeReader? CreateStringConstructableReader(Type type)
         {
             return null;
@@ -523,7 +564,6 @@ namespace Junior
                 { typeof(DateTimeOffset), JsonSpanParsableReader<DateTimeOffset>.Instance },
                 { typeof(TimeSpan), JsonSpanParsableReader<TimeSpan>.Instance },
                 { typeof(Guid), JsonSpanParsableReader<Guid>.Instance },
-                { typeof(JsonValue), JsonValueReader.Instance },
                 { typeof(StringBuilder), JsonStringBuilderReader.Instance },
                 { typeof(Stream), JsonStreamReader.Instance }
             };

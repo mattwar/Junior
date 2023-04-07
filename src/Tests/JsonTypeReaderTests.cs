@@ -1,4 +1,5 @@
 ﻿using Junior;
+using System.Text;
 using static Tests.TestHelpers;
 
 namespace Tests
@@ -177,29 +178,67 @@ namespace Tests
             public string Name { get; init; } = null!;
         }
 
-        private async ValueTask TestTypeReaderAsync<T>(string json, T? expectedValue, JsonTypeReader<T>? reader = null)
+        [TestMethod]
+        public void TestStringBuilder()
         {
-            reader = reader ?? (JsonTypeReader<T>?)JsonTypeReader.GetReader(typeof(T));
-
-            var tokenReader = await JsonTokenReader.CreateAsync(new StringReader(json));
-            Assert.IsNotNull(reader);
-
-            var actualValue = await reader.ReadAsync(tokenReader);
-
-            AssertStructurallyEqual(expectedValue, actualValue);
-
-            // also test sync
-            TestTypeReaderSync(json, expectedValue, reader);
+            TestStringBuilderLength(512);
+            TestStringBuilderLength(8000);
+            TestStringBuilderLength(1024*1024);
         }
 
-        private void TestTypeReaderSync<T>(string json, T? expectedValue, JsonTypeReader<T>? reader = null)
+        private void TestStringBuilderLength(int stringSize)
         {
-            reader = reader ?? (JsonTypeReader<T>?)JsonTypeReader.GetReader(typeof(T));
+            var textReader = GetJsonWithLargeString("", stringSize, "");
+            var tokenReader = JsonTokenReader.Create(textReader);
+            var typeReader = JsonStringBuilderReader.Instance;
+            var builder = typeReader.Read(tokenReader);
+            Assert.IsNotNull(builder);
+            Assert.AreEqual(stringSize, builder.Length, "string size");
+        }
 
+        public record TypeWithStringBuilder(int Id, StringBuilder Name);
+
+        private async ValueTask TestTypeReaderAsync<T>(string json, T? expectedValue, JsonTypeReader<T>? typeReader = null)
+        {
             var tokenReader = JsonTokenReader.Create(new StringReader(json));
-            Assert.IsNotNull(reader);
+            await TestTypeReaderAsync<T>(tokenReader, expectedValue, typeReader);
 
-            var actualValue = reader.Read(tokenReader);
+            tokenReader = JsonTokenReader.Create(new StringReader(json));
+            TestTypeReaderSync(tokenReader, expectedValue, typeReader);
+        }
+
+        private async ValueTask TestTypeReaderAsync<T>(IEnumerable<string> jsonParts, T? expectedValue, JsonTypeReader<T>? typeReader = null)
+        {
+            var tokenReader = JsonTokenReader.Create(new EnumeratorReader(jsonParts.GetEnumerator()));
+            await TestTypeReaderAsync<T>(tokenReader, expectedValue, typeReader);
+
+            tokenReader = JsonTokenReader.Create(new EnumeratorReader(jsonParts.GetEnumerator()));
+            TestTypeReaderSync(tokenReader, expectedValue, typeReader);
+        }
+
+        private void TestTypeReaderSync<T>(string json, T? expectedValue, JsonTypeReader<T>? typeReader = null)
+        {
+            var tokenReader = JsonTokenReader.Create(new StringReader(json));
+            TestTypeReaderSync(tokenReader, expectedValue, typeReader);
+        }
+
+        private async ValueTask TestTypeReaderAsync<T>(
+            JsonTokenReader tokenReader, T? expectedValue, JsonTypeReader<T>? typeReader = null)
+        {
+            typeReader = typeReader ?? (JsonTypeReader<T>?)JsonTypeReader.GetReader(typeof(T));
+            Assert.IsNotNull(typeReader);
+
+            var actualValue = await typeReader.ReadAsync(tokenReader);
+
+            AssertStructurallyEqual(expectedValue, actualValue);
+        }
+
+        private void TestTypeReaderSync<T>(JsonTokenReader tokenReader, T? expectedValue, JsonTypeReader<T>? typeReader = null)
+        {
+            typeReader = typeReader ?? (JsonTypeReader<T>?)JsonTypeReader.GetReader(typeof(T));
+            Assert.IsNotNull(typeReader);
+            
+            var actualValue = typeReader!.Read(tokenReader);
 
             AssertStructurallyEqual(expectedValue, actualValue);
         }

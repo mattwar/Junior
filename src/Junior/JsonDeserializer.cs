@@ -2,7 +2,7 @@
 {
     public class JsonDeserializer
     {
-        public object? Deserialize(Type type, JsonTokenReader tokenReader)
+        public static object? Deserialize(Type type, JsonTokenReader tokenReader)
         {
             var typeReader = JsonTypeReader.GetReader(type);
             if (typeReader != null)
@@ -13,7 +13,7 @@
             return null;
         }
 
-        public async ValueTask<object?> DeserializeAsync(Type type, JsonTokenReader tokenReader)
+        public static async ValueTask<object?> DeserializeAsync(Type type, JsonTokenReader tokenReader)
         {
             var typeReader = JsonTypeReader.GetReader(type);
             if (typeReader != null)
@@ -24,10 +24,9 @@
             return null;
         }
 
-        public T? Deserialize<T>(JsonTokenReader tokenReader)
+        public static T? Deserialize<T>(JsonTokenReader tokenReader)
         {
-            var typeReader = (JsonTypeReader<T>)JsonTypeReader.GetReader(typeof(T));
-            if (typeReader != null)
+            if (JsonTypeReader.GetReader(typeof(T)) is JsonTypeReader<T> typeReader)
             {
                 return typeReader.Read(tokenReader);
             }
@@ -35,10 +34,9 @@
             return default;
         }
 
-        public async ValueTask<T?> DeserializeAsync<T>(JsonTokenReader tokenReader)
+        public static async ValueTask<T?> DeserializeAsync<T>(JsonTokenReader tokenReader)
         {
-            var typeReader = (JsonTypeReader<T>)JsonTypeReader.GetReader(typeof(T));
-            if (typeReader != null)
+            if (JsonTypeReader.GetReader(typeof(T)) is JsonTypeReader<T> typeReader)
             {
                 return await typeReader.ReadAsync(tokenReader).ConfigureAwait(false);
             }

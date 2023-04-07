@@ -64,5 +64,33 @@ namespace Tests
             }
         }
 
+        public static TextReader GetJsonWithLargeString(string before, int size, string after)
+        {
+            return new EnumeratorReader(GetJson().GetEnumerator());
+
+            IEnumerable<string> GetJson()
+            {
+                var text = new string('?', 1024);
+
+                yield return before + "\"";
+
+                while (size > 0)
+                {
+                    var yieldSize = Math.Min(text.Length, size);
+                    if (yieldSize < text.Length)
+                    {
+                        yield return text.Substring(0, yieldSize);
+                    }
+                    else
+                    {
+                        yield return text;
+                    }
+
+                    size -= yieldSize;
+                }
+
+                yield return "\"" + after;
+            }
+        }
     }
 }
