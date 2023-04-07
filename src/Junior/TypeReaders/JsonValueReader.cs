@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
-
-namespace Junior
+﻿namespace Junior
 {
     /// <summary>
     /// A <see cref="JsonTypeReader"/> that reads <see cref="JsonValue"/>.

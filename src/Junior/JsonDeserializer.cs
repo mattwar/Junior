@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Junior
+﻿namespace Junior
 {
     public class JsonDeserializer
     {

@@ -1,12 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
-using System.Linq;
-using System.Text;
-using System.Xml;
-using Junior;
-
-namespace Junior
+﻿namespace Junior
 {
     /// <summary>
     /// Reads tabular data in a specific format within json stream.

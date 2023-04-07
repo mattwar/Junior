@@ -1,6 +1,4 @@
-﻿using System.Xml.Linq;
-
-namespace Junior
+﻿namespace Junior
 {
     /// <summary>
     /// A <see cref="JsonTypeReader"/> that reads json objects and
