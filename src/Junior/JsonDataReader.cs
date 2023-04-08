@@ -8,15 +8,20 @@
     public class JsonDataReader
     {
         private readonly JsonTokenReader _tokenReader;
-        private readonly JsonValueReader _valueReader;
+        private readonly IReadOnlyDictionary<string, JsonTypeReader>? _typeReaderMap;
+        private readonly JsonTypeReader<object> _defaultReader;
         private string? _tableName;
         private JsonList? _tableSchema;
         private ReadState _state;
 
-        public JsonDataReader(JsonTokenReader reader)
+        public JsonDataReader(
+            JsonTokenReader reader, 
+            IReadOnlyDictionary<string, JsonTypeReader>? readerMap = null,
+            JsonTypeReader<object>? defaultReader = null)
         {
             _tokenReader = reader;
-            _valueReader = JsonValueReader.Instance;
+            _typeReaderMap = readerMap;
+            _defaultReader = defaultReader ?? JsonAnyReader.Instance;
             _state = ReadState.Start;
         }
 
@@ -153,17 +158,17 @@
                     }
                     else if (_tokenReader.TokenKind.IsValueStart())
                     {
-                        var propertyName = await _valueReader.ReadJsonPropertyNameAsync(_tokenReader).ConfigureAwait(false);
+                        var propertyName = await JsonValueReader.Instance.ReadJsonPropertyNameAsync(_tokenReader).ConfigureAwait(false);
                         if (propertyName == "name")
                         {
-                            var val = await _valueReader.ReadAsync(_tokenReader).ConfigureAwait(false);
+                            var val = await JsonValueReader.Instance.ReadAsync(_tokenReader).ConfigureAwait(false);
                             if (val is JsonString str)
                                 _tableName = str.Value;
                             continue;
                         }
                         else if (propertyName == "columns")
                         {
-                            _tableSchema = (await _valueReader.ReadAsync(_tokenReader).ConfigureAwait(false)) as JsonList;
+                            _tableSchema = (await JsonValueReader.Instance.ReadAsync(_tokenReader).ConfigureAwait(false)) as JsonList;
                             continue;
                         }
                         else if (propertyName == "rows"
@@ -293,9 +298,11 @@
             var type = CurrentFieldType;
             if (type == null)
             {
-                await JsonAnyReader.Instance.ReadAsync(_tokenReader).ConfigureAwait(false);
+                await _defaultReader.ReadAsync(_tokenReader).ConfigureAwait(false);
             }
-            else if (_typeToFieldMap.TryGetValue(type, out var typeReader))
+            else if (
+                (_typeReaderMap != null && _typeReaderMap.TryGetValue(type, out var typeReader))
+                || _defaultTypeReaderMap.TryGetValue(type, out typeReader))
             {
                 return await typeReader.ReadObjectAsync(_tokenReader).ConfigureAwait(false);
             }
@@ -304,11 +311,11 @@
         }
 
         public ReadOnlySpan<char> CurrentFieldValueSpan => 
-            _tokenReader.CurrentValueSpan;
+            _tokenReader.CurrentValueChunk;
 
         public ValueTask<bool> ReadNextFieldValueSpan()
         {
-            return _tokenReader.ReadNextSpanAsync();
+            return _tokenReader.ReadNextTokenChunkAsync();
         }
 
         private record ColumnSchema(string Name, string Type);
@@ -348,11 +355,11 @@
             Value
         }
 
-        private static readonly Dictionary<string, JsonTypeReader> _typeToFieldMap =
+        private static readonly Dictionary<string, JsonTypeReader> _defaultTypeReaderMap =
             new Dictionary<string, JsonTypeReader>(StringComparer.OrdinalIgnoreCase)
             {
                 {"object", JsonAnyReader.Instance },
-                {"string", JsonStringAssignableReader<string>.Instance },
+                {"string", JsonStringReader.Instance },
                 {"byte", JsonSpanParsableReader<byte>.Instance },
                 {"uint8", JsonSpanParsableReader<byte>.Instance },
                 {"sbyte", JsonSpanParsableReader<sbyte>.Instance },

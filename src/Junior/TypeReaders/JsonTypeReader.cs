@@ -300,6 +300,14 @@ namespace Junior
         /// </summary>
         public static JsonTypeReader? CreateStringConstructableReader(Type type)
         {
+            if (GetStringCompatibleConstructor(type) is ConstructorInfo constructor)
+            {
+                var fnConstruct = CreateConstructorDelegate(constructor, new Type[] { typeof(string) });
+                return (JsonTypeReader?)Activator.CreateInstance(
+                    typeof(JsonStringConstructableReader<>).MakeGenericType(typeof(string)),
+                    fnConstruct);
+            }
+
             return null;
         }
 
@@ -432,7 +440,7 @@ namespace Junior
         private static bool HasPublicDefaultConstructor(Type type)
         {
             return type.IsValueType 
-                || type.GetConstructors()
+                || type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
                        .FirstOrDefault(c => c.GetParameters().Length == 0) 
                        != null;
         }
@@ -451,7 +459,7 @@ namespace Junior
                     && param.ParameterType == p.PropertyType) != null;
 
             // constructors with parameters that correspond to properties
-            var propConstructors = type.GetConstructors()
+            var propConstructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
                 .Select(c => (Constructor: c, Parameters: c.GetParameters()))
                 .Where(x => x.Parameters.All(pm => HasMatchingProperty(pm) && GetReader(pm.ParameterType) != null))
                 .ToList();
@@ -464,27 +472,42 @@ namespace Junior
         }
 
         /// <summary>
-        /// Returns the <see cref="ConstructorInfo"/> for a constructor 
+        /// Returns the <see cref="ConstructorInfo"/> for a type 
         /// with one parameter that can be assigned a list.
         /// </summary>
         private static ConstructorInfo? GetListCompatibleConstructor(Type type)
         {
             return 
-                type.GetConstructors().FirstOrDefault(c => c.GetParameters() is var ps
+                type.GetConstructors(BindingFlags.Public | BindingFlags.Instance).FirstOrDefault(c => c.GetParameters() is var ps
                 && ps.Length == 1
                 && typeof(IEnumerable).IsAssignableFrom(ps[0].ParameterType));
         }
 
         /// <summary>
-        /// Returns the <see cref="ConstructorInfo"/> for a constructor
+        /// Returns the <see cref="ConstructorInfo"/> for a type
         /// with one parameter that can be assigned a list.
         /// </summary>
         private static ConstructorInfo? GetDictionaryCompatibleConstructor(Type type)
         {
             return 
-                type.GetConstructors().FirstOrDefault(c => c.GetParameters() is var ps
-                && ps.Length == 1
-                && typeof(IDictionary).IsAssignableFrom(ps[0].ParameterType));
+                type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(c => 
+                    c.GetParameters() is var ps
+                    && ps.Length == 1
+                    && typeof(IDictionary).IsAssignableFrom(ps[0].ParameterType));
+        }
+
+        /// <summary>
+        /// Returns the <see cref="ConstructorInfo"/> for a type
+        /// with one parameter that can be assigned a string.
+        /// </summary>
+        public static ConstructorInfo? GetStringCompatibleConstructor(Type type)
+        {
+            return type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+                .FirstOrDefault(c => 
+                    c.GetParameters() is var ps
+                    && ps.Length == 1
+                    && ps[0].ParameterType == typeof(string));
         }
 
         /// <summary>
@@ -547,7 +570,7 @@ namespace Junior
             new Dictionary<Type, JsonTypeReader>()
             {
                 { typeof(object), JsonAnyReader.Instance },
-                { typeof(string), JsonStringAssignableReader<string>.Instance },
+                { typeof(string), JsonStringReader.Instance },
                 { typeof(bool), JsonBoolReader.Instance },
                 { typeof(byte), JsonSpanParsableReader<byte>.Instance },
                 { typeof(sbyte), JsonSpanParsableReader<sbyte>.Instance },

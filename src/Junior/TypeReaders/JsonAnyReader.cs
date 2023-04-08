@@ -236,7 +236,7 @@ namespace Junior
         {
             if (reader.TokenInBuffer)
             {
-                return TValue.TryParse(reader.CurrentValueSpan, null, out value);
+                return TValue.TryParse(reader.CurrentValueChunk, null, out value);
             }
             else
             {

@@ -1,10 +1,12 @@
-﻿namespace Junior
+﻿using static System.Net.Mime.MediaTypeNames;
+
+namespace Junior
 {
-    public class JsonStringReader<TValue> : JsonTypeReader<TValue>
+    public class JsonStringConstructableReader<TValue> : JsonTypeReader<TValue>
     {
         private readonly Func<string, TValue> _fnMap;
 
-        public JsonStringReader(Func<string, TValue> fnMap)
+        public JsonStringConstructableReader(Func<string, TValue> fnMap)
         {
             _fnMap = fnMap;
         }
@@ -27,9 +29,12 @@
                     var value = reader.ReadTokenValue();
                     return _fnMap(value);
 
+                case TokenKind.ListStart:
+                case TokenKind.ObjectStart:
+                    var text = reader.ReadElementText();
+                    return _fnMap(text);
+
                 default:
-                    // TODO: should return json of element?
-                    reader.MoveToNextElement();
                     return default;
             }
         }
@@ -52,16 +57,19 @@
                     var value = await reader.ReadTokenValueAsync().ConfigureAwait(false);
                     return _fnMap(value);
 
+                case TokenKind.ListStart:
+                case TokenKind.ObjectStart:
+                    var text = await reader.ReadElementTextAsync().ConfigureAwait(false);
+                    return _fnMap(text);
+
                 default:
-                    // TODO: should return json of element?
-                    await reader.MoveToNextElementAsync().ConfigureAwait(false);
                     return default;
             }
         }
     }
 
     public class JsonStringParsableReader<TValue>
-        : JsonStringReader<TValue>
+        : JsonStringConstructableReader<TValue>
         where TValue : IParsable<TValue>
     {
         public JsonStringParsableReader()
@@ -77,7 +85,7 @@
     }
 
     public class JsonStringAssignableReader<TValue>
-        : JsonStringReader<TValue>
+        : JsonStringConstructableReader<TValue>
         where TValue : class
     {
         public static readonly JsonStringAssignableReader<TValue> Instance = 
@@ -85,6 +93,17 @@
 
         public JsonStringAssignableReader()
             : base(text => (TValue)(object)text)
+        {
+        }
+    }
+
+    public class JsonStringReader
+        : JsonStringAssignableReader<string>
+    {
+        public static new readonly JsonStringReader Instance =
+            new JsonStringReader();
+
+        public JsonStringReader()
         {
         }
     }

@@ -8,107 +8,112 @@ namespace Tests
     public class JsonTypeReaderTests
     {
         [TestMethod]
-        public async Task TestAny()
+        public async Task TestJsonAnyReader()
         {
-            await TestTypeReaderAsync("\"abc\"", "abc", JsonAnyReader.Instance);
-            await TestTypeReaderAsync("123", 123, JsonAnyReader.Instance);
-            await TestTypeReaderAsync("true", true, JsonAnyReader.Instance);
-            await TestTypeReaderAsync("false", false, JsonAnyReader.Instance);
-            await TestTypeReaderAsync("null", null, JsonAnyReader.Instance);
-            await TestTypeReaderAsync("[1, 2, 3]", new object[] { 1, 2, 3 }, JsonAnyReader.Instance);
-            await TestTypeReaderAsync("{\"x\": 1}", new Dictionary<string, object?> { { "x", 1 } }, JsonAnyReader.Instance);
+            await TestTypeReader("\"abc\"", "abc", JsonAnyReader.Instance);
+            await TestTypeReader("123", 123, JsonAnyReader.Instance);
+            await TestTypeReader("true", true, JsonAnyReader.Instance);
+            await TestTypeReader("false", false, JsonAnyReader.Instance);
+            await TestTypeReader("null", null, JsonAnyReader.Instance);
+            await TestTypeReader("[1, 2, 3]", new object[] { 1, 2, 3 }, JsonAnyReader.Instance);
+            await TestTypeReader("{\"x\": 1}", new Dictionary<string, object?> { { "x", 1 } }, JsonAnyReader.Instance);
         }
 
         [TestMethod]
-        public async Task TestString()
+        public async Task TestJsonStringReader()
         {
-            await TestTypeReaderAsync("\"abc\"", "abc");
-            await TestTypeReaderAsync("123", "123");
-            await TestTypeReaderAsync("true", "true");
-            await TestTypeReaderAsync("false", "false");
-            await TestTypeReaderAsync<string?>("null", null);
-            await TestTypeReaderAsync<string?>("[]", null);
-            await TestTypeReaderAsync<string?>("{}", null);
+            await TestTypeReader("\"abc\"", "abc", JsonStringReader.Instance);
+            await TestTypeReader("123", "123", JsonStringReader.Instance);
+            await TestTypeReader("true", "true", JsonStringReader.Instance);
+            await TestTypeReader("false", "false", JsonStringReader.Instance);
+            await TestTypeReader("null", null, JsonStringReader.Instance);
+            await TestTypeReader("[]", "[]", JsonStringReader.Instance);
+            await TestTypeReader("{}", "{}", JsonStringReader.Instance);
         }
 
         [TestMethod]
-        public async Task TestBool()
+        public async Task TestJsonBoolReader()
         {
-            await TestTypeReaderAsync("true", true);
-            await TestTypeReaderAsync("false", false);
-            await TestTypeReaderAsync("null", false);
-            await TestTypeReaderAsync("\"True\"", true);
-            await TestTypeReaderAsync("\"true\"", true);
-            await TestTypeReaderAsync("\"false\"", false);
-            await TestTypeReaderAsync("\"abc\"", false);
-            await TestTypeReaderAsync("123", false);
-            await TestTypeReaderAsync("0", false);
-            await TestTypeReaderAsync("[]", false);
-            await TestTypeReaderAsync("{}", false);
-
-            await TestTypeReaderAsync("null", (bool?)null);
+            await TestTypeReader("true", true, JsonBoolReader.Instance);
+            await TestTypeReader("false", false, JsonBoolReader.Instance);
+            await TestTypeReader("null", false, JsonBoolReader.Instance);
+            await TestTypeReader("\"True\"", true, JsonBoolReader.Instance);
+            await TestTypeReader("\"true\"", true, JsonBoolReader.Instance);
+            await TestTypeReader("\"false\"", false, JsonBoolReader.Instance);
+            await TestTypeReader("\"abc\"", false, JsonBoolReader.Instance);
+            await TestTypeReader("123", false, JsonBoolReader.Instance);
+            await TestTypeReader("0", false, JsonBoolReader.Instance);
+            await TestTypeReader("[]", false, JsonBoolReader.Instance);
+            await TestTypeReader("{}", false, JsonBoolReader.Instance);
+            await TestTypeReader("null", null, JsonBoolReader.NullableInstance);
         }
 
         [TestMethod]
-        public async Task TestNumbers()
+        public async Task TestInferredReader_Numbers()
         {
             // byte
-            await TestTypeReaderAsync("1", (byte)1);
-            await TestTypeReaderAsync($"{byte.MaxValue}", byte.MaxValue);
-            await TestTypeReaderAsync($"{byte.MinValue}", byte.MinValue);
-            await TestTypeReaderAsync("\"1\"", (byte)1);
-            await TestTypeReaderAsync("null", (byte)0);
-            await TestTypeReaderAsync("null", (byte?)null);
-            await TestTypeReaderAsync("256", (byte)0);  // TODO: deal with parsing failure??
+            await TestInferredReader("1", (byte)1);
+            await TestInferredReader($"{byte.MaxValue}", byte.MaxValue);
+            await TestInferredReader($"{byte.MinValue}", byte.MinValue);
+            await TestInferredReader("\"1\"", (byte)1);
+            await TestInferredReader("null", (byte)0);
+            await TestInferredReader("null", (byte?)null);
+            await TestInferredReader("256", (byte)0);  // TODO: deal with parsing failure??
 
             // int16
-            await TestTypeReaderAsync("1", (short)1);
-            await TestTypeReaderAsync($"{Int16.MaxValue}", Int16.MaxValue);
-            await TestTypeReaderAsync($"{Int16.MinValue}", Int16.MinValue);
-            await TestTypeReaderAsync("\"1\"", (short)1);
-            await TestTypeReaderAsync("null", (short)0);
-            await TestTypeReaderAsync("null", (short?)null);
+            await TestInferredReader("1", (short)1);
+            await TestInferredReader($"{Int16.MaxValue}", Int16.MaxValue);
+            await TestInferredReader($"{Int16.MinValue}", Int16.MinValue);
+            await TestInferredReader("\"1\"", (short)1);
+            await TestInferredReader("null", (short)0);
+            await TestInferredReader("null", (short?)null);
 
             // int32
-            await TestTypeReaderAsync("1", 1);
-            await TestTypeReaderAsync($"{Int32.MaxValue}", Int32.MaxValue);
-            await TestTypeReaderAsync($"{Int32.MinValue}", Int32.MinValue);
-            await TestTypeReaderAsync("\"1\"", 1);
-            await TestTypeReaderAsync("null", (int?)null);
+            await TestInferredReader("1", 1);
+            await TestInferredReader($"{Int32.MaxValue}", Int32.MaxValue);
+            await TestInferredReader($"{Int32.MinValue}", Int32.MinValue);
+            await TestInferredReader("\"1\"", 1);
+            await TestInferredReader("null", (int?)null);
 
             // int64
-            await TestTypeReaderAsync("1", 1L);
-            await TestTypeReaderAsync($"{Int64.MaxValue}", Int64.MaxValue);
-            await TestTypeReaderAsync($"{Int64.MinValue}", Int64.MinValue);
-            await TestTypeReaderAsync("\"1\"", 1L);
-            await TestTypeReaderAsync("null", (long)0);
-            await TestTypeReaderAsync("null", (long?)null);
+            await TestInferredReader("1", 1L);
+            await TestInferredReader($"{Int64.MaxValue}", Int64.MaxValue);
+            await TestInferredReader($"{Int64.MinValue}", Int64.MinValue);
+            await TestInferredReader("\"1\"", 1L);
+            await TestInferredReader("null", (long)0);
+            await TestInferredReader("null", (long?)null);
 
             // double
-            await TestTypeReaderAsync("1", 1.0);
-            await TestTypeReaderAsync("1.0", 1.0);
-            await TestTypeReaderAsync("\"1\"", 1.0);
-            await TestTypeReaderAsync("\"1.0\"", 1.0);
-            await TestTypeReaderAsync("null", (double)0);
-            await TestTypeReaderAsync("null", (double?)null);
+            await TestInferredReader("1", 1.0);
+            await TestInferredReader("1.0", 1.0);
+            await TestInferredReader("\"1\"", 1.0);
+            await TestInferredReader("\"1.0\"", 1.0);
+            await TestInferredReader("null", (double)0);
+            await TestInferredReader("null", (double?)null);
 
             // decimal
-            await TestTypeReaderAsync("1", 1m);
-            await TestTypeReaderAsync("1.0", 1m);
-            await TestTypeReaderAsync("\"1\"", 1m);
-            await TestTypeReaderAsync("\"1.0\"", 1.0);
-            await TestTypeReaderAsync("null", (decimal)0);
-            await TestTypeReaderAsync("null", (decimal?)null);
+            await TestInferredReader("1", 1m);
+            await TestInferredReader("1.0", 1m);
+            await TestInferredReader("\"1\"", 1m);
+            await TestInferredReader("\"1.0\"", 1.0);
+            await TestInferredReader("null", (decimal)0);
+            await TestInferredReader("null", (decimal?)null);
+
+            // other junk
+            await TestInferredReader("true", 0);
+            await TestInferredReader("false", 0);
+            await TestInferredReader<int>("[]", 0);
+            await TestInferredReader<int>("{}", 0);
         }
 
         [TestMethod]
-        public async Task TestLists()
+        public async Task TestInferredReader_Lists()
         {
-            await TestTypeReaderAsync("[1, 2, 3]", new[] { 1, 2, 3 });
-            await TestTypeReaderAsync("[1, 2, 3]", new List<int> { 1, 2, 3 });
-            await TestTypeReaderAsync<IEnumerable<int>>("[1, 2, 3]", new List<int> { 1, 2, 3 });
-            await TestTypeReaderAsync("[1, 2, 3]", new TestAddList<int> { 1, 2, 3 });
-            await TestTypeReaderAsync("[1, 2, 3]", new TestListConstructable<int>(new [] { 1, 2, 3 }));
+            await TestInferredReader("[1, 2, 3]", new[] { 1, 2, 3 });
+            await TestInferredReader("[1, 2, 3]", new List<int> { 1, 2, 3 });
+            await TestInferredReader<IEnumerable<int>>("[1, 2, 3]", new List<int> { 1, 2, 3 });
+            await TestInferredReader("[1, 2, 3]", new TestAddList<int> { 1, 2, 3 });
+            await TestInferredReader("[1, 2, 3]", new TestListConstructable<int>(new [] { 1, 2, 3 }));
         }
 
         public class TestAddList<T> : List<T>
@@ -127,22 +132,22 @@ namespace Tests
         }
 
         [TestMethod]
-        public async Task TestJsonValue()
+        public async Task TestJsonValueReader()
         {
-            await TestTypeReaderAsync("true", JsonTrue.Instance, JsonValueReader.Instance);
-            await TestTypeReaderAsync("false", JsonFalse.Instance, JsonValueReader.Instance);
-            await TestTypeReaderAsync("null", JsonNull.Instance, JsonValueReader.Instance);
-            await TestTypeReaderAsync("10", new JsonNumber("10"), JsonValueReader.Instance);
-            await TestTypeReaderAsync("\"abc\"", new JsonString("abc"), JsonValueReader.Instance);
+            await TestTypeReader("true", JsonTrue.Instance, JsonValueReader.Instance);
+            await TestTypeReader("false", JsonFalse.Instance, JsonValueReader.Instance);
+            await TestTypeReader("null", JsonNull.Instance, JsonValueReader.Instance);
+            await TestTypeReader("10", new JsonNumber("10"), JsonValueReader.Instance);
+            await TestTypeReader("\"abc\"", new JsonString("abc"), JsonValueReader.Instance);
 
-            await TestTypeReaderAsync("[1, 2, 3]",
+            await TestTypeReader("[1, 2, 3]",
                 new JsonList(
                     new JsonNumber("1"),
                     new JsonNumber("2"),
                     new JsonNumber("3")),
                 JsonValueReader.Instance);
 
-            await TestTypeReaderAsync(IdNameJsonText,
+            await TestTypeReader(IdNameJsonText,
                 new JsonObject(
                     new JsonProperty("id", new JsonNumber("123")),
                     new JsonProperty("name", new JsonString("Mot"))),
@@ -150,20 +155,20 @@ namespace Tests
         }
 
         [TestMethod]
-        public async Task TestClass()
+        public async Task TestInferredReader_Classes()
         {
-            await TestTypeReaderAsync(IdNameJsonText, new TestInitializedRecord { Id = 123, Name = "Mot" });
-            await TestTypeReaderAsync(IdNameJsonText, new TestParameterizedRecord(123, "Mot"));
-            await TestTypeReaderAsync(IdNameJsonText, new TestParameterizedAndInitializedRecord(123) { Name = "Mot" });
+            await TestInferredReader(IdNameJsonText, new TestInitializedRecord { Id = 123, Name = "Mot" });
+            await TestInferredReader(IdNameJsonText, new TestParameterizedRecord(123, "Mot"));
+            await TestInferredReader(IdNameJsonText, new TestParameterizedAndInitializedRecord(123) { Name = "Mot" });
         }
 
         private static readonly string IdNameJsonText =
             """
-                { 
-                    "id" : 123,
-                    "name": "Mot"
-                }
-                """;
+            { 
+                "id" : 123,
+                "name": "Mot"
+            }
+            """;
 
         public record TestParameterizedRecord(int Id, string Name);
 
@@ -198,7 +203,7 @@ namespace Tests
 
         public record TypeWithStringBuilder(int Id, StringBuilder Name);
 
-        private async ValueTask TestTypeReaderAsync<T>(string json, T? expectedValue, JsonTypeReader<T>? typeReader = null)
+        private async ValueTask TestTypeReader<T>(string json, object? expectedValue, JsonTypeReader<T> typeReader)
         {
             var tokenReader = JsonTokenReader.Create(new StringReader(json));
             await TestTypeReaderAsync<T>(tokenReader, expectedValue, typeReader);
@@ -207,7 +212,14 @@ namespace Tests
             TestTypeReaderSync(tokenReader, expectedValue, typeReader);
         }
 
-        private async ValueTask TestTypeReaderAsync<T>(IEnumerable<string> jsonParts, T? expectedValue, JsonTypeReader<T>? typeReader = null)
+        private ValueTask TestInferredReader<T>(string json, T expectedValue)
+        {
+            var reader = (JsonTypeReader<T>?)JsonTypeReader.GetReader(typeof(T));
+            Assert.IsNotNull(reader);
+            return TestTypeReader(json, expectedValue, reader);
+        }
+
+        private async ValueTask TestTypeReader<T>(IEnumerable<string> jsonParts, object? expectedValue, JsonTypeReader<T> typeReader)
         {
             var tokenReader = JsonTokenReader.Create(new EnumeratorReader(jsonParts.GetEnumerator()));
             await TestTypeReaderAsync<T>(tokenReader, expectedValue, typeReader);
@@ -216,30 +228,23 @@ namespace Tests
             TestTypeReaderSync(tokenReader, expectedValue, typeReader);
         }
 
-        private void TestTypeReaderSync<T>(string json, T? expectedValue, JsonTypeReader<T>? typeReader = null)
+        private ValueTask TestInferredReader<T>(IEnumerable<string> jsonParts, T expectedValue)
         {
-            var tokenReader = JsonTokenReader.Create(new StringReader(json));
-            TestTypeReaderSync(tokenReader, expectedValue, typeReader);
+            var reader = (JsonTypeReader<T>?)JsonTypeReader.GetReader(typeof(T));
+            Assert.IsNotNull(reader);
+            return TestTypeReader(jsonParts, expectedValue, reader);
         }
 
         private async ValueTask TestTypeReaderAsync<T>(
-            JsonTokenReader tokenReader, T? expectedValue, JsonTypeReader<T>? typeReader = null)
+            JsonTokenReader tokenReader, object? expectedValue, JsonTypeReader<T> typeReader)
         {
-            typeReader = typeReader ?? (JsonTypeReader<T>?)JsonTypeReader.GetReader(typeof(T));
-            Assert.IsNotNull(typeReader);
-
             var actualValue = await typeReader.ReadAsync(tokenReader);
-
             AssertStructurallyEqual(expectedValue, actualValue);
         }
 
-        private void TestTypeReaderSync<T>(JsonTokenReader tokenReader, T? expectedValue, JsonTypeReader<T>? typeReader = null)
+        private void TestTypeReaderSync<T>(JsonTokenReader tokenReader, object? expectedValue, JsonTypeReader<T> typeReader)
         {
-            typeReader = typeReader ?? (JsonTypeReader<T>?)JsonTypeReader.GetReader(typeof(T));
-            Assert.IsNotNull(typeReader);
-            
             var actualValue = typeReader!.Read(tokenReader);
-
             AssertStructurallyEqual(expectedValue, actualValue);
         }
     }

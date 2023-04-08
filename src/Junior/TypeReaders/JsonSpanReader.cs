@@ -21,17 +21,36 @@
             if (!reader.HasToken)
                 reader.MoveToNextToken();
 
-            if (reader.TokenInBuffer)
+            switch (reader.TokenKind)
             {
-                var value = _fnMap(reader.CurrentValueSpan);
-                reader.MoveToNextToken();
-                return value;
-            }
-            else
-            {
-                var text = reader.ReadTokenValue();
-                var value = _fnMap(text.AsSpan());
-                return value;
+                case TokenKind.Null:
+                    reader.MoveToNextToken();
+                    return default;
+
+                case TokenKind.True:
+                case TokenKind.False:
+                case TokenKind.String:
+                case TokenKind.Number:
+                    if (reader.TokenInBuffer)
+                    {
+                        var value = _fnMap(reader.CurrentValueChunk);
+                        reader.MoveToNextToken();
+                        return value;
+                    }
+                    else
+                    {
+                        var text = reader.ReadTokenValue();
+                        var value = _fnMap(text);
+                        return value;
+                    }
+
+                case TokenKind.ListStart:
+                case TokenKind.ObjectStart:
+                    var elementText = reader.ReadElementText();
+                    return _fnMap(elementText);
+
+                default:
+                    return default;
             }
         }
 
@@ -40,17 +59,36 @@
             if (!reader.HasToken)
                 await reader.MoveToNextTokenAsync().ConfigureAwait(false);
 
-            if (reader.TokenInBuffer)
+            switch (reader.TokenKind)
             {
-                var value = _fnMap(reader.CurrentValueSpan);
-                await reader.MoveToNextTokenAsync().ConfigureAwait(false);
-                return value;
-            }
-            else
-            {
-                var text = await reader.ReadTokenValueAsync().ConfigureAwait(false);
-                var value = _fnMap(text.AsSpan());
-                return value;
+                case TokenKind.Null:
+                    reader.MoveToNextToken();
+                    return default;
+
+                case TokenKind.True:
+                case TokenKind.False:
+                case TokenKind.String:
+                case TokenKind.Number:
+                    if (reader.TokenInBuffer)
+                    {
+                        var value = _fnMap(reader.CurrentValueChunk);
+                        await reader.MoveToNextTokenAsync().ConfigureAwait(false);
+                        return value;
+                    }
+                    else
+                    {
+                        var text = await reader.ReadTokenValueAsync().ConfigureAwait(false);
+                        var value = _fnMap(text);
+                        return value;
+                    }
+
+                case TokenKind.ListStart:
+                case TokenKind.ObjectStart:
+                    var elementText = await reader.ReadElementTextAsync().ConfigureAwait(false);
+                    return _fnMap(elementText);
+
+                default:
+                    return default;
             }
         }
     }

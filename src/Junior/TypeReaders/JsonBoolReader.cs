@@ -3,6 +3,7 @@
     public class JsonBoolReader : JsonTypeReader<bool>
     {
         public static readonly JsonBoolReader Instance = new JsonBoolReader();
+        public static readonly JsonTypeReader<bool?> NullableInstance = new JsonNullableReader<bool>(Instance);
 
         public override bool Read(JsonTokenReader reader)
         {
@@ -17,7 +18,7 @@
                 case TokenKind.String:
                     if (reader.TokenInBuffer)
                     {
-                        bool.TryParse(reader.CurrentValueSpan, out var value);
+                        bool.TryParse(reader.CurrentValueChunk, out var value);
                         reader.MoveToNextToken();
                         return value;
                     }
@@ -47,7 +48,7 @@
                 case TokenKind.String:
                     if (reader.TokenInBuffer)
                     {
-                        bool.TryParse(reader.CurrentValueSpan, out var value);
+                        bool.TryParse(reader.CurrentValueChunk, out var value);
                         await reader.MoveToNextTokenAsync().ConfigureAwait(false);
                         return value;
                     }
