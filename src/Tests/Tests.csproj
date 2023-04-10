@@ -10,7 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\Junior\TypeHelper.cs" Link="TypeHelper.cs" />
+    <Compile Include="..\Junior\Helpers\AsyncHelpers.cs" Link="Helpers\AsyncHelpers.cs" />
+    <Compile Include="..\Junior\Helpers\TypeHelper.cs" Link="Helpers\TypeHelper.cs" />
   </ItemGroup>
 
   <ItemGroup>

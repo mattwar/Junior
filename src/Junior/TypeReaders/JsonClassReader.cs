@@ -239,10 +239,10 @@
     /// A <see cref="JsonTypeReader"/> that reads json objects and constructs types 
     /// via member initialization only.
     /// </summary>
-    public class JsonClassInitializedReader<TType> : JsonClassReader<TType>
+    public class JsonClassDefaultConstructableReader<TType> : JsonClassReader<TType>
         where TType : class, new()
     {
-        public JsonClassInitializedReader(
+        public JsonClassDefaultConstructableReader(
             IReadOnlyList<JsonMemberInitializer> members)
             : base(Array.Empty<JsonConstructorParameter>(), members, args => new TType())
         {

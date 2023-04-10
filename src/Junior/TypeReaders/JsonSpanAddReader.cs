@@ -73,16 +73,31 @@ namespace Junior
         }
     }
 
-    public class JsonStreamReader
-        : JsonSpanAddReader<Stream, StreamWriter>
+    public class JsonStreamReader<TStream>
+        : JsonSpanAddReader<TStream, StreamWriter>
+        where TStream : Stream
     {
-        public static readonly JsonStreamReader Instance = new JsonStreamReader();
+        public static readonly JsonStreamReader<TStream> Instance = new JsonStreamReader<TStream>();
 
         public JsonStreamReader()
             : base(
                   () => new StreamWriter(new MemoryStream()),
                   (sw, span) => sw.Write(span),
-                  (sw) => { sw.Flush(); return sw.BaseStream; })
+                  (sw) => { sw.Flush(); return (TStream)sw.BaseStream; })
+        {
+        }
+    }
+
+    public class JsonLargeStringReader
+        : JsonSpanAddReader<LargeString, LargeString.Builder>
+    {
+        public static readonly JsonLargeStringReader Instance = new JsonLargeStringReader();
+
+        public JsonLargeStringReader()
+            : base(
+                  () => LargeString.Empty.ToBuilder(),
+                  (b, span) => b.Add(span),
+                  b => b.ToLargeString())
         {
         }
     }

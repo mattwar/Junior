@@ -1,5 +1,5 @@
 using Junior;
-using static Tests.TestHelpers;
+using static Tests.Helpers.TestHelpers;
 
 namespace Tests
 {

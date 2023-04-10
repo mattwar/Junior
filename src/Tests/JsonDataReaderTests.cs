@@ -1,10 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Junior;
-using static Tests.TestHelpers;
+﻿using Junior;
+using Junior.Helpers;
+using static Tests.Helpers.TestHelpers;
 
 namespace Tests
 {
@@ -15,6 +11,20 @@ namespace Tests
         public async Task TestSingleTable()
         {
             await TestDataReaderAsync(
+                IdNameDataJson,
+            new Table("Test",
+                new[] {
+                    new Column("Id", "long"),
+                    new Column("Name", "string"),
+                    new Column("Data", "double")},
+                new[]
+                {
+                    new Row(1L, "Tom", 3.2),
+                    new Row(2L, "Mot", 5.4)
+                }));
+        }
+
+        public static readonly string IdNameDataJson =
             """
                 {
                     "name": "Test",
@@ -30,17 +40,26 @@ namespace Tests
                         [2, "Mot", 5.4]
                     ]
                 }
-                """,
-            new Table("Test",
-                new[] {
-                    new Column("Id", "long"),
-                    new Column("Name", "string"),
-                    new Column("Data", "double")},
-                new[]
-                {
-                    new Row(1L, "Tom", 3.2),
-                    new Row(2L, "Mot", 5.4)
-                }));
+                """;
+
+        [TestMethod]
+        public async Task TestReadRows_InitializedMembers()
+        {
+            await TestReadRows(
+                IdNameDataJson,
+                new TestRecord(1, "Tom", 3.2),
+                new TestRecord(2, "Mot", 5.4));
+        }
+
+        public record TestRecord(long Id, string Name, double Data);
+
+        private async Task TestReadRows<TRow>(string json, params TRow[] expectedRows)
+        {
+            var reader = new JsonDataReader(JsonTokenReader.Create(new StringReader(json)));
+
+            var actualRows = await reader.ReadRowsAsync<TRow>().ToListAsync();
+
+            AssertStructurallyEqual(expectedRows, actualRows);
         }
 
         private Task TestDataReaderAsync(string json, Table table)

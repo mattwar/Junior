@@ -1,6 +1,6 @@
 ﻿using Junior;
 using System.Text;
-using static Tests.TestHelpers;
+using static Tests.Helpers.TestHelpers;
 
 namespace Tests
 {
@@ -187,21 +187,39 @@ namespace Tests
         public void TestStringBuilder()
         {
             TestStringBuilderLength(512);
+            TestStringBuilderLength(512, 32);
             TestStringBuilderLength(8000);
             TestStringBuilderLength(1024*1024);
         }
 
-        private void TestStringBuilderLength(int stringSize)
+        private void TestStringBuilderLength(int stringSize, int bufferSize = JsonTokenReader.DefaultBufferSize)
         {
             var textReader = GetJsonWithLargeString("", stringSize, "");
-            var tokenReader = JsonTokenReader.Create(textReader);
+            var tokenReader = JsonTokenReader.Create(textReader, bufferSize);
             var typeReader = JsonStringBuilderReader.Instance;
             var builder = typeReader.Read(tokenReader);
             Assert.IsNotNull(builder);
             Assert.AreEqual(stringSize, builder.Length, "string size");
         }
 
-        public record TypeWithStringBuilder(int Id, StringBuilder Name);
+        [TestMethod]
+        public void TestLargeString()
+        {
+            TestLargeString(512);
+            TestLargeString(512, 32);
+            TestLargeString(8000);
+            TestLargeString(1024 * 1024);
+        }
+
+        private void TestLargeString(int stringSize, int bufferSize = JsonTokenReader.DefaultBufferSize)
+        {
+            var textReader = GetJsonWithLargeString("", stringSize, "");
+            var tokenReader = JsonTokenReader.Create(textReader, bufferSize);
+            var typeReader = JsonLargeStringReader.Instance;
+            var largeString = typeReader.Read(tokenReader);
+            Assert.IsNotNull(largeString);
+            Assert.AreEqual(stringSize, largeString.Length, "large string size");
+        }
 
         private async ValueTask TestTypeReader<T>(string json, object? expectedValue, JsonTypeReader<T> typeReader)
         {

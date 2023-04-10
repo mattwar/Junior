@@ -5,13 +5,13 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Tests
+namespace Tests.Helpers
 {
     public class TestHelpers
     {
         public static void AssertStructurallyEqual(object? expected, object? actual)
         {
-            if (object.Equals(expected, actual))
+            if (Equals(expected, actual))
                 return;
 
             if (expected == null)

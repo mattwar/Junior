@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Collections;
-using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Reflection.PortableExecutable;
 using System.Text;
+using Junior.Helpers;
+using static Junior.Helpers.TypeHelper;
 
 namespace Junior
 {
@@ -26,8 +29,11 @@ namespace Junior
             if (s_typeReader.TryGetValue(type, out reader))
                 return reader;
 
-            return s_typeReader.GetOrAdd(type, CreateTypeReader);
+            return ImmutableInterlocked.GetOrAdd(ref s_typeReader, type, CreateTypeReader);
         }
+
+        private static ImmutableDictionary<Type, JsonTypeReader?> s_typeReader
+            = ImmutableDictionary<Type, JsonTypeReader?>.Empty;
 
         /// <summary>
         /// Create a <see cref="JsonTypeReader"/> for the specified type.
@@ -329,7 +335,7 @@ namespace Junior
                 if (members.Count > 0)
                 {
                     return (JsonTypeReader?)Activator.CreateInstance(
-                        typeof(JsonClassInitializedReader<>).MakeGenericType(type), 
+                        typeof(JsonClassDefaultConstructableReader<>).MakeGenericType(type), 
                         new object[] { members });
                 }
             }
@@ -392,178 +398,6 @@ namespace Junior
             return null;
         }
 
-        /// <summary>
-        /// Creates a delgate that will invoke a constructor.
-        /// </summary>
-        private static Delegate CreateConstructorDelegate(ConstructorInfo constructor, Type[] delegateArgTypes)
-        {
-            var constructorParameters = constructor.GetParameters();
-            var lambdaParameters = constructorParameters.Select((p, i) => Expression.Parameter(delegateArgTypes[i], p.Name)).ToArray();
-            var args = lambdaParameters.Select((p, i) => Expression.Convert(p, constructorParameters[i].ParameterType)).ToArray();
-            var lambda = Expression.Lambda(Expression.New(constructor, args), lambdaParameters);
-            return lambda.Compile();
-        }
-
-        /// <summary>
-        /// Creates a delgate that will invoke a constructor with array of object for parameters
-        /// </summary>
-        private static Delegate CreateObjectArrayDelegate(ConstructorInfo constructor)
-        {
-            var constructorParameters = constructor.GetParameters();
-            var arrayParam = Expression.Parameter(typeof(object[]), "paramArray");
-            var args = constructorParameters.Select((p, i) => 
-                Expression.Convert(
-                    Expression.ArrayIndex(arrayParam, Expression.Constant(i)), 
-                    p.ParameterType)).ToArray();
-            var lambda = Expression.Lambda(Expression.New(constructor, args), arrayParam);
-            return lambda.Compile();
-        }
-
-        /// <summary>
-        /// Creates a delegate that will set a property value.
-        /// </summary>
-        public static Delegate CreatePropertySetterDelegate(Type type, PropertyInfo property)
-        {
-            var instance = Expression.Parameter(type, "instance");
-            var value = Expression.Parameter(property.PropertyType, "value");
-            var delegateType = typeof(Action<,>).MakeGenericType(type, property.PropertyType);
-            var lambda = Expression.Lambda(
-                delegateType,
-                Expression.Assign(Expression.Property(instance, property), value),
-                new[] { instance, value });
-            return lambda.Compile();
-        }
-
-        /// <summary>
-        /// Returns if the type has a default constructor.
-        /// </summary>
-        private static bool HasPublicDefaultConstructor(Type type)
-        {
-            return type.IsValueType 
-                || type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-                       .FirstOrDefault(c => c.GetParameters().Length == 0) 
-                       != null;
-        }
-
-        /// <summary>
-        /// Returns the public constructor with most parameters where all the 
-        /// arguments correspond to public properties.
-        /// </summary>
-        private static ConstructorInfo? GetPublicPropertyConstructor(Type type)
-        {
-            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-
-            bool HasMatchingProperty(ParameterInfo param) =>
-                properties?.FirstOrDefault(p => 
-                    string.Compare(p.Name, param.Name, StringComparison.OrdinalIgnoreCase) == 0
-                    && param.ParameterType == p.PropertyType) != null;
-
-            // constructors with parameters that correspond to properties
-            var propConstructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-                .Select(c => (Constructor: c, Parameters: c.GetParameters()))
-                .Where(x => x.Parameters.All(pm => HasMatchingProperty(pm) && GetReader(pm.ParameterType) != null))
-                .ToList();
-
-            var best = propConstructors
-                .OrderByDescending(x => x.Parameters.Length)
-                .FirstOrDefault();
-
-            return best.Constructor;
-        }
-
-        /// <summary>
-        /// Returns the <see cref="ConstructorInfo"/> for a type 
-        /// with one parameter that can be assigned a list.
-        /// </summary>
-        private static ConstructorInfo? GetListCompatibleConstructor(Type type)
-        {
-            return 
-                type.GetConstructors(BindingFlags.Public | BindingFlags.Instance).FirstOrDefault(c => c.GetParameters() is var ps
-                && ps.Length == 1
-                && typeof(IEnumerable).IsAssignableFrom(ps[0].ParameterType));
-        }
-
-        /// <summary>
-        /// Returns the <see cref="ConstructorInfo"/> for a type
-        /// with one parameter that can be assigned a list.
-        /// </summary>
-        private static ConstructorInfo? GetDictionaryCompatibleConstructor(Type type)
-        {
-            return 
-                type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-                .FirstOrDefault(c => 
-                    c.GetParameters() is var ps
-                    && ps.Length == 1
-                    && typeof(IDictionary).IsAssignableFrom(ps[0].ParameterType));
-        }
-
-        /// <summary>
-        /// Returns the <see cref="ConstructorInfo"/> for a type
-        /// with one parameter that can be assigned a string.
-        /// </summary>
-        public static ConstructorInfo? GetStringCompatibleConstructor(Type type)
-        {
-            return type.GetConstructors(BindingFlags.Public | BindingFlags.Instance)
-                .FirstOrDefault(c => 
-                    c.GetParameters() is var ps
-                    && ps.Length == 1
-                    && ps[0].ParameterType == typeof(string));
-        }
-
-        /// <summary>
-        /// Returns true if the constructor has parameters that are assignable from the argument types.
-        /// </summary>
-        private static bool IsMatchingConstructor(ConstructorInfo constructor, Type[] argTypes)
-        {
-            var parameters = constructor.GetParameters();
-
-            if (parameters.Length != argTypes.Length)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < argTypes.Length; i++)
-            {
-                if (!parameters[i].ParameterType.IsAssignableFrom(argTypes[i]))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        /// <summary>
-        /// Returns true if the method has the specified name and parameters that are 
-        /// assignable from the argument types.
-        /// </summary>
-        private static bool IsMatchingMethod(MethodInfo method, string name, Type[] argTypes)
-        {
-            if (method.Name != name)
-            {
-                return false;
-            }
-
-            var parameters = method.GetParameters();
-            if (parameters.Length != argTypes.Length)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < argTypes.Length; i++)
-            {
-                if (!parameters[i].ParameterType.IsAssignableFrom(argTypes[i]))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        private static readonly ConcurrentDictionary<Type, JsonTypeReader?> s_typeReader
-            = new ConcurrentDictionary<Type, JsonTypeReader?>();
-
         private static readonly object[] NoArgs = new object[0];
 
         private static readonly Dictionary<Type, JsonTypeReader> s_defaultTypeReaders =
@@ -588,7 +422,9 @@ namespace Junior
                 { typeof(TimeSpan), JsonSpanParsableReader<TimeSpan>.Instance },
                 { typeof(Guid), JsonSpanParsableReader<Guid>.Instance },
                 { typeof(StringBuilder), JsonStringBuilderReader.Instance },
-                { typeof(Stream), JsonStreamReader.Instance }
+                { typeof(Stream), JsonStreamReader<Stream>.Instance },
+                { typeof(MemoryStream), JsonStreamReader<MemoryStream>.Instance },
+                { typeof(LargeString), JsonLargeStringReader.Instance }
             };
     }
 

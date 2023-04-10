@@ -5,7 +5,7 @@
     /// { "name": "...", "columns": [...], "rows": [[...], [...], [...]] }
     /// Colum schema is either a list of column names or a list of objects with name & type.
     /// </summary>
-    public class JsonDataReader
+    public class JsonDataReader : StreamingDataReader
     {
         private readonly JsonTokenReader _tokenReader;
         private readonly IReadOnlyDictionary<string, JsonTypeReader>? _typeReaderMap;
@@ -13,6 +13,7 @@
         private string? _tableName;
         private JsonList? _tableSchema;
         private ReadState _state;
+        private int _currentFieldIndex;
 
         public JsonDataReader(
             JsonTokenReader reader, 
@@ -25,22 +26,32 @@
             _state = ReadState.Start;
         }
 
-        public JsonTokenReader TokenReader => _tokenReader;
+        public JsonTokenReader TokenReader =>
+            _tokenReader;
 
-        public string TableName => _tableName ?? "";
+        public override int FieldCount =>
+            _tableSchema != null ? _tableSchema.Values.Count : 0;
 
-        private int _currentFieldIndex;
-        public int CurrentFieldIndex => _currentFieldIndex;
+        public override string TableName =>
+            _tableName ?? "";
 
-        public string CurrentFieldName => GetFieldName(_currentFieldIndex);
-        public string CurrentFieldType => GetFieldType(_currentFieldIndex);
+        public override int CurrentFieldIndex =>
+            _currentFieldIndex;
 
-        public int FieldCount => _tableSchema != null ? _tableSchema.Values.Count : 0;
+        public override string CurrentFieldName =>
+            GetFieldName(_currentFieldIndex);
+
+        public override string CurrentFieldType =>
+            GetFieldType(_currentFieldIndex);
+
+        public override ReadOnlySpan<char> CurrentFieldValueChunk =>
+            _tokenReader.CurrentValueChunk;
+
 
         /// <summary>
         /// Gets the name of the field at the specified index.
         /// </summary>
-        public string GetFieldName(int index)
+        public override string GetFieldName(int index)
         {
             if (_tableSchema != null && index < _tableSchema.Values.Count)
             {
@@ -61,7 +72,7 @@
         /// <summary>
         /// Gets the type of the field at the specified index.
         /// </summary>
-        public string GetFieldType(int index)
+        public override string GetFieldType(int index)
         {
             if (_tableSchema != null && index < _tableSchema.Values.Count)
             {
@@ -80,7 +91,7 @@
         /// Move to the the start of the next table in the stream.
         /// Returns false if there are no more tables.
         /// </summary>
-        public async ValueTask<bool> MoveToNextTableAsync()
+        public override async ValueTask<bool> MoveToNextTableAsync()
         {
             // skip over remaining rows
             if (_state == ReadState.RowSet
@@ -198,7 +209,7 @@
         /// Move to the next row in the current table in the stream.
         /// Returns false if there are no more rows in the current table.
         /// </summary>
-        public async ValueTask<bool> MoveToNextRowAsync()
+        public override async ValueTask<bool> MoveToNextRowAsync()
         {
             if (_state == ReadState.Row
                 || _state == ReadState.Field
@@ -216,8 +227,7 @@
                     return false;
                 }
             }
-            else if (_state == ReadState.Start
-                && !_tokenReader.HasToken)
+            else if (_state == ReadState.Start)
             {
                 await MoveToNextTableAsync().ConfigureAwait(false);
             }
@@ -257,7 +267,7 @@
         /// Moves to the next field in the current row.
         /// Returns false if there are no more fields.
         /// </summary>
-        public async ValueTask<bool> MoveToNextFieldAsync()
+        public override async ValueTask<bool> MoveToNextFieldAsync()
         {
             if (_state == ReadState.Row)
             {
@@ -293,32 +303,77 @@
             return false;
         }
 
-        public async ValueTask<object?> ReadFieldValueAsync()
+        /// <summary>
+        /// Reads the current field value
+        /// </summary>
+        public override async ValueTask<object?> ReadFieldValueAsync()
+        {
+            if (GetCurrentFieldReader() is JsonTypeReader reader)
+            {
+                return await reader.ReadObjectAsync(_tokenReader).ConfigureAwait(false);
+            }
+            else
+            {
+                return _tokenReader.ReadElementTextAsync().ConfigureAwait(false);
+            }
+        }
+
+        private JsonTypeReader? GetCurrentFieldReader()
         {
             var type = CurrentFieldType;
             if (type == null)
             {
-                await _defaultReader.ReadAsync(_tokenReader).ConfigureAwait(false);
+                return _defaultReader;
             }
             else if (
                 (_typeReaderMap != null && _typeReaderMap.TryGetValue(type, out var typeReader))
                 || _defaultTypeReaderMap.TryGetValue(type, out typeReader))
             {
-                return await typeReader.ReadObjectAsync(_tokenReader).ConfigureAwait(false);
+                return typeReader;
             }
 
             return null;
         }
 
-        public ReadOnlySpan<char> CurrentFieldValueSpan => 
-            _tokenReader.CurrentValueChunk;
+        /// <summary>
+        /// Returns the current field value as the specified type.
+        /// </summary>
+        public async override ValueTask<T> ReadFieldValueAsync<T>()
+        {
+            if (JsonTypeReader.GetReader(typeof(T)) is JsonTypeReader<T> reader)
+            {
+                return (await reader.ReadAsync(_tokenReader).ConfigureAwait(false))!;
+            }
+            else
+            {
+                await _tokenReader.MoveToNextElementAsync().ConfigureAwait(false);
+                return default!;
+            }
+        }
 
-        public ValueTask<bool> ReadNextFieldValueSpan()
+        /// <summary>
+        /// Returns the current field value as the specified type.
+        /// </summary>
+        public async override ValueTask<object?> ReadFieldValueAsync(Type type)
+        {
+            if (JsonTypeReader.GetReader(type) is JsonTypeReader reader)
+            {
+                return (await reader.ReadObjectAsync(_tokenReader).ConfigureAwait(false))!;
+            }
+            else
+            {
+                await _tokenReader.MoveToNextElementAsync().ConfigureAwait(false);
+                return default!;
+            }
+        }
+
+        /// <summary>
+        /// Reads the next chunk of characters from the current field value.
+        /// </summary>
+        public override ValueTask<bool> ReadNextFieldValueChunkAsync()
         {
             return _tokenReader.ReadNextTokenChunkAsync();
         }
-
-        private record ColumnSchema(string Name, string Type);
 
         private enum ReadState
         {
