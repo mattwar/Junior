@@ -1,70 +1,583 @@
 ﻿using System;
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Text;
+using Junior.Helpers;
 
 namespace Junior
 {
     /// <summary>
-    /// Represents a string that is stored in chunks instead of a single contiguous block of characters.
+    /// Represents a string that is stored in multiple segments 
+    /// instead of a single contiguous block of characters.
     /// </summary>
     public class LargeString 
         : IComparable<LargeString>, 
           IEquatable<LargeString>
     {
-        private readonly ImmutableList<string> _segments;
+        private readonly ImmutableList<Segment> _segments;
         private readonly long _length;
+        private readonly int _segmentSize;
 
-        private LargeString(ImmutableList<string> segments, long length)
+        private struct Segment
+        {
+            public string Text;
+            public long Start;
+
+            public int Length => this.Text.Length;
+            public long End => this.Start + this.Length;
+
+            public Segment(string text, long start)
+            {
+                this.Text = text;
+                this.Start = start;
+            }
+        }
+
+        private static readonly int DefaultSegmentSize = 4096;
+
+        private LargeString(
+            ImmutableList<Segment> segments, long length, int segmentLength)
         {
             _segments = segments;
             _length = length;
+            _segmentSize = segmentLength;
         }
 
-        public LargeString(string text)
+        /// <summary>
+        /// Constructs a new <see cref="LargeString"/> from the specified string.
+        /// Since the specified string is already allocated, the <see cref="LargeString"/>
+        /// will not break it down into segments.
+        /// </summary>
+        public LargeString(string text, int segmentSize)
         {
-            if (!string.IsNullOrEmpty(text))
+            if (string.IsNullOrEmpty(text))
             {
-                _segments = ImmutableList<string>.Empty.Add(text);
-                _length = text.Length;
+                _segments = ImmutableList<Segment>.Empty;
+                _length = 0;
+                _segmentSize = segmentSize;
             }
             else
             {
-                _segments = ImmutableList<string>.Empty;
-                _length = 0;
+                _segments = ImmutableList<Segment>.Empty.Add(new Segment(text, 0));
+                _length = text.Length;
+                _segmentSize = segmentSize;
             }
         }
 
+        /// <summary>
+        /// Constructs a new <see cref="LargeString"/> from the specified string.
+        /// Since the specified string is already allocated, the <see cref="LargeString"/>
+        /// will not break it down into segments.
+        /// </summary>
+        public LargeString(string text)
+            : this(text, DefaultSegmentSize)
+        {
+        }
+
+        /// <summary>
+        /// Constructs a new empty <see cref="LargeString"/>
+        /// with the specified <see cref="SegmentSize"/>.
+        /// </summary>
+        public LargeString(int segmentSize)
+            : this("", segmentSize)
+        {
+        }
+
+        /// <summary>
+        /// Constructs a new empty <see cref="LargeString"/>.
+        /// </summary>
         public LargeString()
             : this("")
         {
         }
 
+        /// <summary>
+        /// A singleton empty <see cref="LargeString"/>
+        /// </summary>
+        public static readonly LargeString Empty =
+            new LargeString();
 
+        /// <summary>
+        /// The current count of characters in the <see cref="LargeString"/>
+        /// </summary>
         public long Length => _length;
 
-        public static readonly LargeString Empty =
-            new LargeString(ImmutableList<string>.Empty, 0);
+        /// <summary>
+        /// The segment size (in characters) used by the <see cref="LargeString"/> 
+        /// to limit contiguous memory allocations.
+        /// </summary>
+        public int SegmentSize => _segmentSize;
 
-#if false
+        /// <summary>
+        /// returns the character at the specified index
+        /// </summary>
+        public char this[long index]
+        {
+            get
+            {
+                if (TryGetSegmentIndex(index, out var segmentIndex)
+                    && TryGetSegmentRange(index, 1, segmentIndex, out var segment, out var segmentOffset, out _))
+                {
+                    return segment.Text[segmentOffset];
+                }
+                else
+                {
+                    throw new ArgumentOutOfRangeException(nameof(index));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Returns a new instance of this <see cref="LargeString"/>
+        /// with the <see cref="SegmentSize"/> changed to the specified value.
+        /// This size will not affect the existing chunks.
+        /// </summary>
+        public LargeString WithSegmentSize(int size)
+        {
+            return new LargeString(_segments, _length, size);
+        }
+
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> with the specified span of characters appended.
+        /// </summary>
+        public LargeString Append(ReadOnlySpan<char> text)
+        {
+            return Append(new string(text));
+        }
+
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> with the specified string appended.
+        /// </summary>
         public LargeString Append(string text)
         {
-            return new LargeString(
-                _segments.Add(text), 
-                this.Length + text.Length);
+            if (string.IsNullOrEmpty(text))
+                return this;
+
+            var lastIndex = _segments.Count - 1;
+
+            if (text.Length < _segmentSize
+                && _segments.Count > 0
+                && _segments[lastIndex].Length < _segmentSize)
+            {
+                var last = _segments[lastIndex];
+                return new LargeString(_segmentSize)
+                    .Append(_segments.GetItemsBefore(lastIndex))
+                    .Append(last.Text + text);
+            }
+            else
+            {
+                return new LargeString(
+                    _segments.Add(
+                        new Segment(text, _length)), 
+                        _length + text.Length,
+                        _segmentSize);
+            }
         }
 
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> with the specified range of the string appended.
+        /// </summary>
+        public LargeString Append(string text, int start, int length) =>
+            Append(text.AsSpan().Slice(start, length));
+
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> with the text from the specified <see cref="LargeString"/> appended.
+        /// </summary>
         public LargeString Append(LargeString text)
         {
-            return new LargeString(
-                _segments.AddRange(text._segments), 
-                this.Length + text.Length);
+            if (text._segments.Count == 0)
+                return text;
+            else if (text._segments.Count == 1)
+                return Append(text._segments[0].Text);
+
+            return Append(text._segments);
         }
 
-        public LargeString Append(char[] buffer, int start, int length)
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> with the specified characters appended.
+        /// </summary>
+        public LargeString Append(char[] buffer) =>
+            Append(buffer.AsSpan());
+
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> with the specified range of characters appended.
+        /// </summary>
+        public LargeString Append(char[] buffer, int start, int length) =>
+            Append(buffer.AsSpan().Slice(start, length));
+
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> with the specified <see cref="Segment"/>'s remapped and appended.
+        /// </summary>
+        private LargeString Append(ImmutableList<Segment> segments)
         {
-            return Append(new String(buffer, start, length));
+            if (segments.Count == 0)
+                return this;
+
+            var newSegments = Remap(_length, segments, out var newLength);
+            return new LargeString(
+                _segments.AddRange(newSegments),
+                newLength,
+                _segmentSize);
         }
-#endif
+
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> with the specified string inserted 
+        /// </summary>
+        public LargeString Insert(long startIndex, string value)
+        {
+            if (startIndex >= _length)
+            {
+                return Append(value);
+            }
+            else if (startIndex == 0 && value.Length >= _segmentSize)
+            {
+                return new LargeString(value).Append(_segments);
+            }
+            else if (TryGetSegment(startIndex, out var index, out var segment))
+            {
+                var offset = (int)(startIndex - segment.Start);
+                var newMiddleText = segment.Text.Insert(offset, value);
+                var segmentsBefore = _segments.GetItemsBefore(index);
+                var segmentsAfter = _segments.GetItemsAfter(index);
+                var newString =
+                    new LargeString(_segmentSize)
+                    .Append(segmentsBefore)
+                    .Append(newMiddleText)
+                    .Append(segmentsAfter);
+                return newString;
+            }
+            else
+            {
+                throw new InvalidOperationException("Could not find insertion segment");
+            }
+        }
+
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> with the specified string inserted 
+        /// </summary>
+        public LargeString Insert(long startIndex, LargeString value)
+        {
+            if (startIndex >= _length)
+            {
+                return Append(value);
+            }
+            else if (startIndex == 0 && value.Length >= _segmentSize)
+            {
+                return new LargeString(_segmentSize).Append(value).Append(_segments);
+            }
+            else if (TryGetSegment(startIndex, out var index, out var segment))
+            {
+                var offset = (int)(startIndex - segment.Start);
+                var textBefore = segment.Text.Substring(0, offset);
+                var textAfter = segment.Text.Substring(offset);
+                var segmentsBefore = _segments.GetItemsBefore(index);
+                var segmentsAfter = _segments.GetItemsAfter(index);
+                var newString =
+                    new LargeString(_segmentSize)
+                    .Append(segmentsBefore)
+                    .Append(textBefore)
+                    .Append(value._segments)
+                    .Append(textAfter)
+                    .Append(segmentsAfter);
+                return newString;
+            }
+            else
+            {
+                throw new InvalidOperationException("Could not find insertion segment");
+            }
+        }
+
+
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> with the specified range of characters removed.
+        /// </summary>
+        public LargeString Remove(long start, long length)
+        {
+            var end = start + length;
+            if (_segments.Count == 0)
+            {
+                return this;
+            }
+            else if (start == 0 && length == _length)
+            {
+                return new LargeString(_segmentSize);
+            }
+            else if (_segments.Count == 1)
+            {
+                var newText = _segments[0].Text.Remove((int)start, (int)length);
+                return new LargeString(newText, _segmentSize);
+            }
+            else if (start == 0
+                && TryGetSegmentIndex(end, out var index)
+                && TryGetSegmentRange(start, length, index, out var segment, out var segmentOffset, out var segmentLength))
+            {
+                var newText = segment.Text.Remove(segmentOffset, segmentLength);
+                var segmentsAfter = _segments.GetItemsAfter(index);
+                return new LargeString(_segmentSize)
+                    .Append(newText)
+                    .Append(segmentsAfter);
+            }
+            else if (end == _length
+                && TryGetSegmentIndex(start, out index)
+                && TryGetSegmentRange(start, length, index, out segment, out segmentOffset, out segmentLength))
+            {
+                var newText = segment.Text.Remove(segmentOffset, segmentLength);
+                var segmentsBefore = _segments.GetItemsBefore(index);
+                return new LargeString(_segmentSize)
+                    .Append(segmentsBefore)
+                    .Append(newText);                   
+            }
+            else if (TryGetSegmentIndex(start, out var firstIndex)
+                && TryGetSegmentRange(start, length, firstIndex, out var firstSegment, out var firstOffset, out var firstLength)
+                && TryGetSegmentIndex(end, out var lastIndex)
+                && TryGetSegmentRange(start, length, lastIndex, out var lastSegment, out var lastOffset, out var lastLength))
+            {
+                var newMiddleText =
+                    (firstIndex == lastIndex)
+                        ? firstSegment.Text.Remove(firstOffset, firstLength)
+                        : firstSegment.Text.Remove(firstOffset, firstLength)
+                            + lastSegment.Text.Remove(lastOffset, lastLength);
+                var segmentsBefore = _segments.GetItemsBefore(firstIndex);
+                var segmentsAfter = _segments.GetItemsAfter(lastIndex);
+                return new LargeString(_segmentSize)
+                    .Append(segmentsBefore)
+                    .Append(newMiddleText)
+                    .Append(segmentsAfter);
+            }
+            else
+            {
+                return this;
+            }
+        }
+
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> with only the specified range of characters remaining.
+        /// </summary>
+        public LargeString Substring(long start, long length)
+        {
+            var end = start + length;
+            if (start == 0 && length == _length)
+            {
+                return this;
+            }
+            else if (_length == 0)
+            {
+                return new LargeString(_segmentSize);
+            }
+            else if (_segments.Count == 1)
+            {
+                var newText = _segments[0].Text.Substring((int)start, (int)length);
+                return new LargeString(newText, _segmentSize);
+            }
+            else if (start == 0
+                && TryGetSegmentIndex(end, out var index)
+                && TryGetSegmentRange(start, length, index, out var segment, out var segmentOffset, out var segmentLength))
+            {
+                var newText = segment.Text.Substring(segmentOffset, segmentLength);
+                var segmentsBefore = _segments.GetItemsBefore(index);
+                return new LargeString(_segmentSize)
+                    .Append(segmentsBefore)
+                    .Append(newText);
+            }
+            else if (end == _length
+                && TryGetSegmentIndex(start, out index)
+                && TryGetSegmentRange(start, length, index, out segment, out segmentOffset, out segmentLength))
+            {
+                var newText = segment.Text.Substring(segmentOffset, segmentLength);
+                var segmentsAfter = _segments.GetItemsAfter(index);
+                return new LargeString(_segmentSize)
+                    .Append(newText)
+                    .Append(segmentsAfter);
+            }
+            else if (TryGetSegmentIndex(start, out var firstIndex)
+                && TryGetSegmentRange(start, length, firstIndex, out var firstSegment, out var firstOffset, out var firstLength)
+                && TryGetSegmentIndex(end, out var lastIndex)
+                && TryGetSegmentRange(start, length, lastIndex, out var lastSegment, out var lastOffset, out var lastLength))
+            {
+                if (firstIndex == lastIndex)
+                {
+                    var newText = firstSegment.Text.Substring(firstOffset, firstLength);
+                    return new LargeString(newText, _segmentSize);
+                }
+                else
+                {
+                    var newFirstText = firstSegment.Text.Substring(firstOffset, firstLength);
+                    var newLastText = lastSegment.Text.Substring(lastOffset, lastLength);
+                    var newMiddleSegments = _segments
+                        .RemoveItemsAfter(lastIndex - 1)
+                        .RemoveItemsBefore(firstIndex + 1);
+                    return new LargeString(_segmentSize)
+                        .Append(newFirstText)
+                        .Append(newMiddleSegments)
+                        .Append(newLastText);
+                }
+            }
+            else
+            {
+                return Empty;
+            }
+        }
+
+        /// <summary>
+        /// Returns a new <see cref="LargeString"/> without the characters before the start index.
+        /// </summary>
+        public LargeString Substring(long startIndex) =>
+            Substring(startIndex, _length - startIndex);
+
+        /// <summary>
+        /// Copies the character starting at the specified index to the span.
+        /// </summary>
+        public void CopyTo(long startIndex, Span<char> span)
+        {
+            var hasSegment = TryGetFirstSegmentRange(
+                startIndex, span.Length,
+                out var segmentIndex,
+                out var segment,
+                out var segmentOffset,
+                out var segmentLength);
+
+            var spanOffset = 0;
+            var spanLength = span.Length;
+ 
+            while (hasSegment && spanLength > 0)
+            {
+                var copyLength = Math.Min(segmentLength, span.Length);
+                
+                segment.Text.AsSpan(segmentOffset, copyLength)
+                    .CopyTo(span.Slice(spanOffset, spanLength));
+
+                segmentOffset += copyLength;
+                segmentLength -= copyLength;
+                spanOffset += copyLength;
+                spanLength -= copyLength;
+
+                if (segmentLength == 0)
+                {
+                    segmentIndex++;
+                    hasSegment = TryGetSegmentRange(
+                        startIndex, span.Length, segmentIndex,
+                        out segment, out segmentOffset, out segmentLength);
+                }
+
+                if (spanLength == 0)
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Copies the character starting at the specified index to the destination
+        /// buffer starting at the destination index.
+        /// </summary>
+        public void CopyTo(long startIndex, char[] destination, int destinationIndex, int length) =>
+            CopyTo(startIndex, destination.AsSpan(destinationIndex, length));
+
+        private static List<Segment> Remap(
+            long start,
+            IReadOnlyList<Segment> segments,
+            out long length)
+        {
+            var list = new List<Segment>(segments.Count);
+
+            foreach (var seg in segments)
+            {
+                if (seg.Length > 0)
+                    list.Add(new Segment(seg.Text, start));
+                start += seg.Length;
+            }
+
+            length = start;
+            return list;
+        }
+
+        private bool TryGetSegmentIndex(
+            long position, 
+            out int index)
+        {
+            index = _segments.BinarySearch(
+                position,
+                (pos, seg) =>
+                    pos < seg.Start ? 1 // look lower
+                    : pos >= seg.End ? -1 // look higher
+                    : 0);
+
+            return index >= 0;
+        }
+
+        private bool TryGetSegment(
+            long position,
+            out int index,
+            out Segment segment)
+        {
+            if (TryGetSegmentIndex(position, out index))
+            {
+                segment = _segments[index];
+                return true;
+            }
+            else
+            {
+                segment = default;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Gets the first segment in a range.
+        /// </summary>
+        private bool TryGetFirstSegmentRange(
+            long rangeStart,
+            long rangeLength,
+            out int index,
+            out Segment segment,
+            out int segmentOffset,
+            out int segmentLength)
+        {
+            if (TryGetSegmentIndex(rangeStart, out index))
+            {
+                return TryGetSegmentRange(
+                    rangeStart,
+                    rangeLength,
+                    index,
+                    out segment,
+                    out segmentOffset,
+                    out segmentLength);
+            }
+            else
+            {
+                segment = default;
+                segmentOffset = 0;
+                segmentLength = 0;
+                return false;
+            }
+        }
+
+        private bool TryGetSegmentRange(
+            long rangeStart,
+            long rangeLength,
+            int index,
+            out Segment segment,
+            out int segmentOffset, 
+            out int segmentLength)
+        {
+            var rangeEnd = rangeStart + rangeLength;
+
+            if (index < _segments.Count)
+            {
+                segment = _segments[index];
+                if (rangeStart < segment.End && rangeEnd >= segment.Start)
+                {
+                    var segmentRangeStart = Math.Min(Math.Max(rangeStart, segment.Start), Math.Max(rangeEnd, segment.End));
+                    var segmentRangeEnd = Math.Max(Math.Min(rangeStart, segment.Start), Math.Min(rangeEnd, segment.End));
+                    segmentOffset = (int)(segmentRangeStart - segment.Start);
+                    segmentLength = (int)(segmentRangeEnd - segmentRangeStart);
+                    return true;
+                }
+            }
+
+            segment = default;
+            segmentOffset = 0;
+            segmentLength = 0;
+            return false;
+        }
 
         public override bool Equals(object? obj)
         {
@@ -74,8 +587,13 @@ namespace Junior
         public bool Equals(LargeString? other) =>
              other != null ? Compare(this, other) == 0 : false;
 
+        public bool Equals(string? other) =>
+            other != null ? Compare(this, other) == 0 : false;
+
         public override int GetHashCode()
         {
+            // just use the length as the hash code..
+            // instead of iterating over the entire text.
             return unchecked((int)_length);
         }
 
@@ -84,118 +602,68 @@ namespace Junior
 
         public static int Compare(
             LargeString largeA, 
-            LargeString largeB, 
-            StringComparison? comparison = null) =>
+            LargeString largeB) =>
             Compare(largeA, 0, largeB, 0, Math.Max(largeA.Length, largeB.Length));
 
         public static int Compare(
             LargeString largeA, long startA, 
             LargeString largeB, long startB, 
             long length,
-            StringComparison? comparison = null)
+            StringComparison comparison = StringComparison.CurrentCulture)
         {
-            comparison ??= StringComparison.CurrentCulture;
-            long endA = startA + length;
-            long endB = startB + length;
-            long segmentStartA = 0;
-            long segmentEndA = 0;
-            long segmentStartB = 0;
-            long segmentEndB = 0;
-            string? segmentA = null;
-            string? segmentB = null;
+            bool hasSegmentA = largeA
+                .TryGetFirstSegmentRange(
+                    startA, length,
+                    out var indexA, 
+                    out var segmentA,
+                    out var segmentOffsetA,
+                    out var segmentLengthA);
 
-            // find starting segment for A
-            int indexA = 0;
-            for (; indexA < largeA._segments.Count; indexA++)
+            bool hasSegmentB = largeB
+                .TryGetFirstSegmentRange(
+                    startB, length,
+                    out var indexB, 
+                    out var segmentB,
+                    out var segmentOffsetB,
+                    out var segmentLengthB);
+
+            while (hasSegmentA && hasSegmentB)
             {
-                segmentA = largeA._segments[indexA];
-                segmentEndA = segmentStartA + segmentA.Length;
-                if (startA >= segmentStartA && startA < segmentEndA)
-                    break;
-            }
+                var compareLength = Math.Min(segmentLengthA, segmentLengthB);
+                var result = string.Compare(
+                    segmentA.Text, segmentOffsetA, 
+                    segmentB.Text, segmentOffsetB,
+                    compareLength,
+                    comparison);
 
-            // find starting segment for B
-            int indexB = 0;
-            for (; indexB < largeB._segments.Count; indexB++)
-            {
-                segmentB = largeB._segments[indexB];
-                segmentEndB = segmentStartB + segmentB.Length;
-                if (startB >= segmentStartB && startB < segmentEndB)
-                    break;
-            }
-
-            var sectionStartA = (int)Math.Max(startA - segmentStartA, 0);
-            var sectionEndA = (int)Math.Min(endA - segmentEndA, segmentEndA);
-            var sectionLengthA = sectionEndA - sectionStartA;
-            var sectionStartB = (int)Math.Max(startB - segmentStartB, 0);
-            var sectionEndB = (int)Math.Min(endB - segmentEndB, segmentEndB);
-            var sectionLengthB = sectionEndB - sectionStartB;
-
-            while (segmentA != null && segmentB != null)
-            {
-                var compareLength = Math.Min(sectionLengthA, sectionLengthB);
-                var result = string.Compare(segmentA, sectionStartA, segmentB, sectionStartB, compareLength);
                 if (result != 0)
                     return result;
 
-                sectionStartA += compareLength;
-                if (sectionStartA >= sectionEndA)
+                segmentOffsetA += compareLength;
+                segmentLengthA -= compareLength;
+                segmentOffsetB += compareLength;
+                segmentLengthB -= compareLength;
+
+                if (segmentLengthA == 0)
                 {
                     indexA++;
-                    if (indexA < largeA._segments.Count)
-                    {
-                        segmentA = largeA._segments[indexA];
-                        segmentStartA = segmentEndA;
-                        segmentEndA = segmentStartA + segmentA.Length;
-                    }
-                    else
-                    {
-                        segmentA = null;
-                    }
+                    hasSegmentA = largeA.TryGetSegmentRange(
+                        startA, length, indexA,
+                        out segmentA, out segmentOffsetA, out segmentLengthA);
                 }
 
-                sectionStartA += compareLength;
-                if (sectionStartA >= sectionEndA)
-                {
-                    indexA++;
-                    if (indexA < largeA._segments.Count)
-                    {
-                        segmentA = largeA._segments[indexA];
-                        segmentStartA = segmentEndA;
-                        segmentEndA = segmentStartA + segmentA.Length;
-                        sectionStartA = 0;
-                        sectionEndA = (int)Math.Min(endA - segmentEndA, segmentEndA);
-                        sectionLengthA = sectionEndA - sectionStartA;
-                    }
-                    else
-                    {
-                        segmentA = null;
-                    }
-                }
-
-                sectionStartB += compareLength;
-                if (sectionStartB >= sectionEndB)
+                if (segmentLengthB == 0)
                 {
                     indexB++;
-                    if (indexB < largeB._segments.Count)
-                    {
-                        segmentB = largeB._segments[indexB];
-                        segmentStartB = segmentEndB;
-                        segmentEndB = segmentStartB + segmentB.Length;
-                        sectionStartB = 0;
-                        sectionEndB = (int)Math.Min(endB - segmentEndB, segmentEndB);
-                        sectionLengthB = sectionEndB - sectionStartB;
-                    }
-                    else
-                    {
-                        segmentB = null;
-                    }
+                    hasSegmentB = largeB.TryGetSegmentRange(
+                        startB, length, indexB,
+                        out segmentB, out segmentOffsetB, out segmentLengthB);
                 }
             }
 
-            if (segmentA == null && segmentB == null)
+            if (!hasSegmentA && !hasSegmentB)
                 return 0;
-            else if (segmentA == null)
+            else if (!hasSegmentA)
                 return -1;
             else
                 return 1;
@@ -203,77 +671,66 @@ namespace Junior
 
         public static int Compare(
             LargeString largeA, 
-            string stringB, 
-            StringComparison? comparison = null) =>
-            Compare(largeA, 0, stringB, 0, Math.Max(largeA.Length, stringB.Length), comparison);
+            string stringB) =>
+            Compare(largeA, 0, stringB, 0, Math.Max(largeA.Length, stringB.Length));
 
         public static int Compare(
             LargeString largeA, long startA,
-            string stringB, int startB,
+            string? stringB, int startB,
             long length,
-            StringComparison? comparison = null)
+            StringComparison comparison = StringComparison.CurrentCulture)
         {
-            comparison ??= StringComparison.CurrentCulture;
             var endA = startA + length;
-            long segmentStartA = 0;
-            long segmentEndA = 0;
-            string? segmentA = null;
 
             // find starting segment for A
-            int indexA = 0;
-            for (; indexA < largeA._segments.Count; indexA++)
+            var hasSegmentA = largeA
+                .TryGetFirstSegmentRange(
+                    startA, length,
+                    out var indexA,
+                    out var segmentA,
+                    out var segmentOffsetA,
+                    out var segmentLengthA);
+
+            var stringOffsetB = startB;
+            var stringLengthB = stringB != null ? stringB.Length : 0;
+
+            if (hasSegmentA && stringB != null)
             {
-                segmentA = largeA._segments[indexA];
-                segmentEndA = segmentStartA + segmentA.Length;
-                if (startA >= segmentStartA && startA < segmentEndA)
-                    break;
-            }
-
-            var segmentB = stringB;
-            var sectionStartB = startB;
-
-            if (segmentA != null && segmentB != null)
-            {
-                var sectionStartA = (int)Math.Max(startA - segmentStartA, 0);
-                var sectionEndA = (int)Math.Min(endA - segmentEndA, segmentA!.Length);
-                var sectionLengthA = sectionEndA - sectionStartA;
-                var sectionEndB = (int)Math.Min(sectionStartB + length, segmentB.Length);
-                var sectionLengthB = sectionEndB - sectionStartB;
-
-                while (segmentA != null && segmentB != null)
+                while (hasSegmentA && stringB != null)
                 {
-                    var compareLength = Math.Min(sectionLengthA, sectionLengthB);
-                    var result = string.Compare(segmentA, sectionStartA, segmentB, sectionStartB, compareLength);
+                    var compareLength = Math.Min(segmentLengthA, stringLengthB);
+                    var result = string.Compare(
+                        segmentA.Text, segmentOffsetA, 
+                        stringB, stringOffsetB, 
+                        compareLength,
+                        comparison);
                     if (result != 0)
                         return result;
 
-                    sectionStartA += compareLength;
-                    if (sectionStartA >= sectionEndA)
+                    segmentOffsetA += compareLength;
+                    segmentLengthA -= compareLength;
+                    stringOffsetB += compareLength;
+                    stringLengthB -= compareLength;
+
+                    if (segmentLengthA == 0)
                     {
                         indexA++;
-                        if (indexA < largeA._segments.Count)
-                        {
-                            segmentA = largeA._segments[indexA];
-                            segmentStartA = segmentEndA;
-                            segmentEndA = segmentStartA + segmentA.Length;
-                        }
-                        else
-                        {
-                            segmentA = null;
-                        }
+                        hasSegmentA = largeA.TryGetSegmentRange(
+                            startA, length, indexA,
+                            out segmentA, out segmentOffsetA, out segmentLengthA);
                     }
 
-                    sectionStartB += compareLength;
-                    if (sectionStartB >= sectionLengthB)
+                    if (stringLengthB == 0)
                     {
-                        segmentB = null;
+                        stringB = null;
+                        break;
                     }
                 }
             }
 
-            if (segmentA == null && segmentB == null)
+            if (!hasSegmentA && stringB == null)
                 return 0;
-            else if (segmentA == null)
+            else if (!hasSegmentA)
                 return -1;
             else
                 return 1;
@@ -284,43 +741,20 @@ namespace Junior
 
         public void WriteTo(TextWriter writer, long start, long length)
         {
-            long segmentStart = 0;
-            var end = start + length;
-
-            foreach (var segment in _segments)
+            if (TryGetSegmentIndex(start, out var index))
             {
-                var segmentLength = segment.Length;
-                var segmentEnd = segmentStart + segmentLength;
-                
-                if (start >= segmentEnd)
-                    break;
-                
-                if (end >= segmentStart)
+                for (; TryGetSegmentRange(
+                        start, length, index,
+                        out var segment, out var segmentOffset, out var segmentLength);
+                        index++)
                 {
-                    var writeStart = Math.Max(start - segmentStart, 0);
-                    var writeEnd = Math.Min(end - segmentEnd, segmentLength);
-                    writer.Write(segment, writeStart, segmentLength - writeEnd);
+                    writer.Write(segment.Text.AsSpan().Slice(segmentOffset, segmentLength));
                 }
-
-                segmentStart = segmentEnd;
             }
         }
 
-        public override string ToString()
-        {
-            if (_segments.Count == 0)
-            {
-                return "";
-            }
-            else if (_segments.Count == 1)
-            {
-                return _segments[0];
-            }
-            else
-            {
-                return string.Concat(_segments);
-            }
-        }
+        public override string ToString() =>
+            ToString(0, _length);
 
         public string ToString(long start, long length)
         {
@@ -328,9 +762,19 @@ namespace Junior
             {
                 return "";
             }
-            else if (start == 0L && length == this.Length)
+            else if (_segments.Count == 1)
             {
-                return ToString();
+                if (start == 0 && length == _length)
+                {
+                    return _segments[0].Text;
+                }
+                else
+                {
+                    var actualStart = (int)Math.Min(start, _length);
+                    var actualEnd = (int)Math.Min(start + length, _length);
+                    var actualLength = actualEnd - actualStart;
+                    return _segments[0].Text.Substring(actualStart, actualLength);
+                }
             }
             else
             {
@@ -345,19 +789,19 @@ namespace Junior
             return new Builder(this);
         }
 
-        private static int IdealStringSegmentSize = 4096;
-
         public class Builder
         {
-            private readonly ImmutableList<string>.Builder _listBuilder;
+            private readonly ImmutableList<Segment>.Builder _listBuilder;
             private readonly StringBuilder _stringBuilder;
             private long _length;
+            private int _segmentSize;
 
             internal Builder(LargeString large)
             {
                 _listBuilder = large._segments.ToBuilder();
                 _stringBuilder = new StringBuilder();
                 _length = large._length;
+                _segmentSize = large._segmentSize;
             }
 
             public void Add(ReadOnlySpan<char> span)
@@ -368,11 +812,10 @@ namespace Junior
 
             public void Add(string text)
             {
-                if (text.Length >= IdealStringSegmentSize
+                if (text.Length >= _segmentSize
                     && _stringBuilder.Length == 0)
                 {
-                    FlushStringBuilder(force: true);
-                    _listBuilder.Add(text);
+                    _listBuilder.Add(new Segment(text, _length));
                     _length += text.Length;
                 }
                 else
@@ -404,36 +847,25 @@ namespace Junior
 
             public void Add(LargeString text, long start, long length)
             {
-                long segmentStart = 0;
-                var end = start + length;
-
-                foreach (var segment in text._segments)
+                if (text.TryGetSegmentIndex(start, out var index))
                 {
-                    var segmentLength = segment.Length;
-                    var segmentEnd = segmentStart + segmentLength;
-
-                    if (start >= segmentEnd)
-                        break;
-
-                    if (end >= segmentStart)
+                    for (; text.TryGetSegmentRange(
+                            start, length, index,
+                            out var segment, out var segmentOffset, out var segmentLength);
+                            index++)
                     {
-                        var writeStart = (int)Math.Max(start - segmentStart, 0);
-                        var writeEnd = (int)Math.Min(end - segmentEnd, segmentLength);
-                        var writeLength = segmentLength - writeEnd;
-                        Add(segment, writeStart, writeLength);
+                        Add(segment.Text, segmentOffset, segmentLength);
                     }
-
-                    segmentStart = segmentEnd;
                 }
             }
 
             private void FlushStringBuilder(bool force)
             {
-                if (_stringBuilder.Length > IdealStringSegmentSize
-                    || force)
+                if (_stringBuilder.Length > _segmentSize
+                    || (force && _stringBuilder.Length > 0))
                 {
+                    _listBuilder.Add(new Segment(_stringBuilder.ToString(), _length));
                     _length += _stringBuilder.Length;
-                    _listBuilder.Add(_stringBuilder.ToString());
                     _stringBuilder.Length = 0;
                 }
             }
@@ -441,7 +873,7 @@ namespace Junior
             public LargeString ToLargeString()
             {
                 FlushStringBuilder(force: true);
-                return new LargeString(_listBuilder.ToImmutableList(), _length);
+                return new LargeString(_listBuilder.ToImmutableList(), _length, _segmentSize);
             }
         }
     }
