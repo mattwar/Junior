@@ -26,14 +26,40 @@ namespace Junior
             if (s_defaultTypeReaders.TryGetValue(type, out var reader))
                 return reader;
 
-            if (s_typeReader.TryGetValue(type, out reader))
+            if (s_typeReaders.TryGetValue(type, out reader))
                 return reader;
 
-            return ImmutableInterlocked.GetOrAdd(ref s_typeReader, type, CreateTypeReader);
+            // add a deferred reader first, to catch cyclic readers requesting the
+            // same reader on call backs via GetReader
+            var deferredReader = CreateDeferredReader(type);
+            reader = ImmutableInterlocked.GetOrAdd(ref s_typeReaders, type, deferredReader);
+
+            // if deferred reader was successfully added, then update it with the true reader,
+            // that itself, if cyclic may ref back to current deferred reader.
+            if (reader == deferredReader)
+            {
+                var trueReader = CreateTypeReader(type);
+                ImmutableInterlocked.Update(ref s_typeReaders, 
+                    readers => readers.SetItem(type, trueReader));
+                reader = trueReader;
+            }
+
+            return reader;
         }
 
-        private static ImmutableDictionary<Type, JsonTypeReader?> s_typeReader
+        private static ImmutableDictionary<Type, JsonTypeReader?> s_typeReaders
             = ImmutableDictionary<Type, JsonTypeReader?>.Empty;
+
+        /// <summary>
+        /// Creates a <see cref="JsonTypeReader"/> that defers to 
+        /// true reader when first used.
+        /// </summary>
+        private static JsonTypeReader CreateDeferredReader(Type type)
+        {
+            return (JsonTypeReader)Activator.CreateInstance(
+                typeof(JsonDeferredReader<>).MakeGenericType(type),
+                new object[] { })!;
+        }
 
         /// <summary>
         /// Create a <see cref="JsonTypeReader"/> for the specified type.

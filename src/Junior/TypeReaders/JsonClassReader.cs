@@ -193,6 +193,7 @@
                                     await member.ReadAndAssignAsync(instance, reader).ConfigureAwait(false);
                                 }
                             }
+                            else
                             {
                                 // skip unrecognized data
                                 reader.MoveToNextElement();

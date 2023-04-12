@@ -130,7 +130,7 @@ namespace Junior
         /// <summary>
         /// Returns a new instance of this <see cref="LargeString"/>
         /// with the <see cref="SegmentSize"/> changed to the specified value.
-        /// This size will not affect the existing chunks.
+        /// This size will not affect the existing segments.
         /// </summary>
         public LargeString WithSegmentSize(int size)
         {

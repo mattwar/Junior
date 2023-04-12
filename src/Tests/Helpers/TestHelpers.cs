@@ -17,7 +17,8 @@ namespace Tests.Helpers
             if (expected == null)
                 Assert.Fail($"Expected null not: {actual}");
 
-            if (expected.GetType().IsPrimitive)
+            if (expected.GetType().IsPrimitive
+                || expected.GetType() == typeof(string))
             {
                 Assert.AreEqual(expected, actual);
             }

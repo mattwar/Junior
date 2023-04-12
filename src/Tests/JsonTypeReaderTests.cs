@@ -8,7 +8,7 @@ namespace Tests
     public class JsonTypeReaderTests
     {
         [TestMethod]
-        public async Task TestJsonAnyReader()
+        public async Task TestAnyReader()
         {
             await TestTypeReader("\"abc\"", "abc", JsonAnyReader.Instance);
             await TestTypeReader("123", 123, JsonAnyReader.Instance);
@@ -20,7 +20,7 @@ namespace Tests
         }
 
         [TestMethod]
-        public async Task TestJsonStringReader()
+        public async Task TestStringReader()
         {
             await TestTypeReader("\"abc\"", "abc", JsonStringReader.Instance);
             await TestTypeReader("123", "123", JsonStringReader.Instance);
@@ -32,7 +32,7 @@ namespace Tests
         }
 
         [TestMethod]
-        public async Task TestJsonBoolReader()
+        public async Task TestBoolReader()
         {
             await TestTypeReader("true", true, JsonBoolReader.Instance);
             await TestTypeReader("false", false, JsonBoolReader.Instance);
@@ -49,7 +49,7 @@ namespace Tests
         }
 
         [TestMethod]
-        public async Task TestInferredReader_Numbers()
+        public async Task TestNumberReaders()
         {
             // byte
             await TestInferredReader("1", (byte)1);
@@ -107,7 +107,7 @@ namespace Tests
         }
 
         [TestMethod]
-        public async Task TestInferredReader_Lists()
+        public async Task TestListReader()
         {
             await TestInferredReader("[1, 2, 3]", new[] { 1, 2, 3 });
             await TestInferredReader("[1, 2, 3]", new List<int> { 1, 2, 3 });
@@ -132,7 +132,7 @@ namespace Tests
         }
 
         [TestMethod]
-        public async Task TestJsonValueReader()
+        public async Task TestValueReader()
         {
             await TestTypeReader("true", JsonTrue.Instance, JsonValueReader.Instance);
             await TestTypeReader("false", JsonFalse.Instance, JsonValueReader.Instance);
@@ -155,7 +155,7 @@ namespace Tests
         }
 
         [TestMethod]
-        public async Task TestInferredReader_Classes()
+        public async Task TestClassReader()
         {
             await TestInferredReader(IdNameJsonText, new TestInitializedRecord { Id = 123, Name = "Mot" });
             await TestInferredReader(IdNameJsonText, new TestParameterizedRecord(123, "Mot"));
@@ -182,6 +182,39 @@ namespace Tests
         {
             public string Name { get; init; } = null!;
         }
+
+        [TestMethod]
+        public async Task TestDeferredReader()
+        {
+            await TestInferredReader(CyclicJsonText,
+                new CyclicRecord(123, "Mot",
+                    new[]
+                    {
+                        new CyclicRecord(456, "Tom", null),
+                        new CyclicRecord(789, "May", null)
+                    }));
+        }
+
+        public record CyclicRecord(int Id, string Name, IReadOnlyList<CyclicRecord>? Reports);
+
+        private static readonly string CyclicJsonText =
+            """
+            { 
+                "id" : 123,
+                "name": "Mot",
+                "reports": 
+                [
+                    {
+                        "id": 456,
+                        "name": "Tom"
+                    },
+                    {
+                        "id": 789,
+                        "name": "May"
+                    }
+                ]
+            }
+            """;
 
         [TestMethod]
         public void TestStringBuilder()
@@ -224,10 +257,10 @@ namespace Tests
         private async ValueTask TestTypeReader<T>(string json, object? expectedValue, JsonTypeReader<T> typeReader)
         {
             var tokenReader = JsonTokenReader.Create(new StringReader(json));
-            await TestTypeReaderAsync<T>(tokenReader, expectedValue, typeReader);
+            TestTypeReaderSync(tokenReader, expectedValue, typeReader);
 
             tokenReader = JsonTokenReader.Create(new StringReader(json));
-            TestTypeReaderSync(tokenReader, expectedValue, typeReader);
+            await TestTypeReaderAsync<T>(tokenReader, expectedValue, typeReader);
         }
 
         private ValueTask TestInferredReader<T>(string json, T expectedValue)

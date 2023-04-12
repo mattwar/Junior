@@ -1274,7 +1274,7 @@ namespace Junior
             while (true)
             {
                 var ch = PeekInBuffer(offset);
-                if (ch == '\0' && !_done)
+                if (ch == '\0')
                     break;
 
                 if (ch == '"')
@@ -1308,6 +1308,7 @@ namespace Junior
             switch (ch)
             {
                 case '\0':
+                    return 0;
                 case '"':
                 case '\\':
                 case '/':
