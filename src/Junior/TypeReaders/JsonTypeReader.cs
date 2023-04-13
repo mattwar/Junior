@@ -348,22 +348,23 @@ namespace Junior
         /// </summary>
         private static JsonTypeReader? CreateClassReader(Type type)
         {
-            // type has default constructor and assignable properties?
-            if (HasPublicDefaultConstructor(type))
-            {
-                var members = type
-                    .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                    .Where(p => p.CanWrite)
-                    .Select(p => CreateMemberInitializer(type, p))
-                    .Where(p => p != null)
-                    .ToList();
+            // settable properties and fields
+            var members = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.CanWrite)
+                .Select(p => CreateMemberInitializer(type, p))
+                .Concat(
+                    type.GetFields(BindingFlags.Public | BindingFlags.Instance)
+                    .Select(f => CreateMemberInitializer(type, f)))
+                .OfType<JsonMemberInitializer>()
+                .ToList();
 
-                if (members.Count > 0)
-                {
-                    return (JsonTypeReader?)Activator.CreateInstance(
-                        typeof(JsonClassDefaultConstructableReader<>).MakeGenericType(type), 
-                        new object[] { members });
-                }
+            // type has default constructor and assignable properties?
+            if (HasPublicDefaultConstructor(type)
+                && members.Count> 0)
+            {
+                return (JsonTypeReader?)Activator.CreateInstance(
+                    typeof(JsonClassDefaultConstructableReader<>).MakeGenericType(type), 
+                    new object[] { members });
             }
             else if (GetPublicPropertyConstructor(type) is ConstructorInfo constructor)
             {
@@ -375,19 +376,7 @@ namespace Junior
                 if (parameters.Any(p => p == null))
                     return null;
 
-                // additional assignable members
-                var names = parameters.Select(p => p!.Name).ToHashSet();
-                var members = type
-                    .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                    .Where(p => p.CanWrite && !names.Contains(p.Name))
-                    .Select(p => CreateMemberInitializer(type, p))
-                    .Where(p => p != null)
-                    .ToList();
-
-                if (members.Any(m => m == null))
-                    return null;
-
-                var fnConstruct = CreateObjectArrayDelegate(constructor);
+                var fnConstruct = CreateObjectArrayConstructorDelegate(constructor);
 
                 return (JsonTypeReader?)Activator.CreateInstance(
                     typeof(JsonClassReader<>).MakeGenericType(type),
@@ -411,14 +400,23 @@ namespace Junior
         /// <summary>
         /// Creates a <see cref="JsonMemberInitializer"/> for a property.
         /// </summary>
-        private static JsonMemberInitializer? CreateMemberInitializer(Type type, PropertyInfo property)
+        private static JsonMemberInitializer? CreateMemberInitializer(Type type, MemberInfo member)
         {
-            if (GetReader(property.PropertyType) is JsonTypeReader propertyReader)
+            if (member is PropertyInfo property
+                && GetReader(property.PropertyType) is JsonTypeReader propertyReader)
             {
                 var propertySetter = CreatePropertySetterDelegate(type, property);
                 return (JsonMemberInitializer?)Activator.CreateInstance(
                     typeof(JsonMemberInitializer<,>).MakeGenericType(type, property.PropertyType),
                         new object[] { property.Name, propertyReader, propertySetter });
+            }
+            else if (member is FieldInfo field
+                && GetReader(field.FieldType) is JsonTypeReader fieldReader)
+            {
+                var fieldSetter = CreateFieldSetterDelegate(type, field);
+                return (JsonMemberInitializer?)Activator.CreateInstance(
+                    typeof(JsonMemberInitializer<,>).MakeGenericType(type, field.FieldType),
+                        new object[] { field.Name, fieldReader, fieldSetter });
             }
 
             return null;
