@@ -7,29 +7,84 @@
     public class JsonClassReader<TType> : JsonTypeReader<TType>
         where TType: class
     {
+        private readonly IReadOnlyList<JsonConstructorParameter> _parameters;
         private readonly Dictionary<string, (JsonConstructorParameter Info, int Index)> _parameterMap;
-        private readonly Dictionary<string, JsonMemberInitializer<TType>> _memberMap;
+        private readonly Dictionary<string, JsonMemberInitializer<TType>> _initializerMap;
         private readonly Func<object?[], TType> _fnConstruct;
+        private readonly bool _initArguments;
 
         public JsonClassReader(
             IReadOnlyList<JsonConstructorParameter> parameters,
-            IReadOnlyList<JsonMemberInitializer> members,
+            IReadOnlyList<JsonMemberInitializer> initializers,
             Func<object?[], TType> fnConstruct)
         {
+            _parameters = parameters;
+
             _parameterMap = parameters
                 .Select((p, i) => (Info: p, Index: i))
                 .ToDictionary(
                     p => p.Info.Name,
                     StringComparer.OrdinalIgnoreCase);
 
-            _memberMap = members
+            _initializerMap = initializers
                 .ToDictionary(
                     m => m.Name,
                     m => (JsonMemberInitializer<TType>)m,
                     StringComparer.OrdinalIgnoreCase);
 
             _fnConstruct = fnConstruct;
+            _initArguments = parameters.Any(p => p.DefaultValue != null);
         }
+
+        private void Initialize(
+            out object?[]? arguments,
+            out Dictionary<string, object?>? memberValues,
+            out TType? instance)
+        {
+            arguments = _parameterMap.Count > 0
+                    ? new object?[_parameterMap.Values.Count]
+                    : null;
+
+            if (_initArguments && arguments != null)
+            {
+                for (int i = 0; i < arguments.Length; i++)
+                {
+                    arguments[i] = _parameters[i].DefaultValue;
+                }
+            }
+
+            memberValues = arguments != null
+                ? new Dictionary<string, object?>()
+                : null;
+
+            instance = arguments == null
+                ? _fnConstruct(Array.Empty<object?>())
+                : default;
+        }
+
+        private TType Construct(object?[]? arguments, Dictionary<string, object?>? memberValues, TType? instance)
+        {
+            if (instance == null
+                && arguments != null)
+            {
+                instance = _fnConstruct(arguments!);
+            }
+
+            if (memberValues != null
+                && instance != null)
+            {
+                foreach (var kvp in memberValues)
+                {
+                    if (_initializerMap.TryGetValue(kvp.Key, out var initailizer))
+                    {
+                        initailizer.Assign(instance, kvp.Value);
+                    }
+                }
+            }
+
+            return instance!;
+        }
+
 
         public override TType? Read(JsonTokenReader reader)
         {
@@ -41,17 +96,7 @@
                 case TokenKind.ObjectStart:
                     reader.MoveToNextToken();
 
-                    var arguments = _parameterMap.Count > 0
-                            ? new object?[_parameterMap.Values.Count]
-                            : null;
-
-                    var memberValues = _memberMap.Count > 0 && arguments != null
-                        ? new Dictionary<string, object?>()
-                        : null;
-
-                    var instance = arguments == null
-                        ? _fnConstruct(Array.Empty<object?>())
-                        : null;
+                    Initialize(out var arguments, out var memberValues, out var instance);
 
                     while (reader.HasToken)
                     {
@@ -78,7 +123,7 @@
                                 var arg = parameter.Info.Reader.ReadObject(reader);
                                 arguments[parameter.Index] = arg;
                             }
-                            else if (_memberMap.TryGetValue(name, out var member))
+                            else if (_initializerMap.TryGetValue(name, out var member))
                             {
                                 if (memberValues != null)
                                 {
@@ -104,26 +149,7 @@
                         }
                     }
 
-                    if (instance == null
-                        && arguments != null)
-                    {
-                        instance = _fnConstruct(arguments);
-                    }
-
-                    if (instance != null
-                        && memberValues != null
-                        && _memberMap != null)
-                    {
-                        foreach (var kvp in memberValues)
-                        {
-                            if (_memberMap.TryGetValue(kvp.Key, out var member))
-                            {
-                                member.Assign(instance, kvp.Value);
-                            }
-                        }
-                    }
-
-                    return instance;
+                    return Construct(arguments, memberValues, instance);
 
                 default:
                     // consume unrecognized values
@@ -143,17 +169,7 @@
                 case TokenKind.ObjectStart:
                     await reader.MoveToNextTokenAsync().ConfigureAwait(false);
 
-                    var arguments = _parameterMap.Count > 0
-                            ? new object?[_parameterMap.Values.Count]
-                            : null;
-
-                    var memberValues = _memberMap.Count > 0 && arguments != null
-                        ? new Dictionary<string, object?>()
-                        : null;
-
-                    var instance = arguments == null
-                        ? _fnConstruct(Array.Empty<object?>())
-                        : null;
+                    Initialize(out var arguments, out var memberValues, out var instance);
 
                     while (reader.HasToken)
                     {
@@ -180,7 +196,7 @@
                                 var arg = await parameter.Info.Reader.ReadObjectAsync(reader).ConfigureAwait(false);
                                 arguments[parameter.Index] = arg;
                             }
-                            else if (_memberMap.TryGetValue(name, out var member))
+                            else if (_initializerMap.TryGetValue(name, out var member))
                             {
                                 if (memberValues != null)
                                 {
@@ -206,26 +222,7 @@
                         }
                     }
 
-                    if (instance == null
-                        && arguments != null)
-                    {
-                        instance = _fnConstruct(arguments);
-                    }
-
-                    if (instance != null
-                        && memberValues != null
-                        && _memberMap != null)
-                    {
-                        foreach (var kvp in memberValues)
-                        {
-                            if (_memberMap.TryGetValue(kvp.Key, out var member))
-                            {
-                                member.Assign(instance, kvp.Value);
-                            }
-                        }
-                    }
-
-                    return instance;
+                    return Construct(arguments, memberValues, instance);
 
                 default:
                     // consume unrecognized values
@@ -308,5 +305,5 @@
         }
     }
 
-    public record JsonConstructorParameter(string Name, JsonTypeReader Reader);
+    public record JsonConstructorParameter(string Name, JsonTypeReader Reader, Object? DefaultValue);
 }

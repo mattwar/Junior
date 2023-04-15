@@ -22,17 +22,6 @@ namespace Tests.Helpers
             {
                 Assert.AreEqual(expected, actual);
             }
-            else if (expected is IEnumerable expectedIE
-                && actual is IEnumerable actualIE)
-            {
-                var expectedList = expectedIE.OfType<object>().ToList();
-                var actualList = actualIE.OfType<object>().ToList();
-                Assert.AreEqual(expectedList.Count, actualList.Count, "list count");
-                for (int i = 0; i < expectedList.Count; i++)
-                {
-                    AssertStructurallyEqual(expectedList[i], actualList[i]);
-                }
-            }
             else if (expected is IDictionary expectedD
                 && actual is IDictionary actualD)
             {
@@ -42,6 +31,17 @@ namespace Tests.Helpers
                     var expectedValue = expectedD[key];
                     var actualValue = actualD[key];
                     AssertStructurallyEqual(expectedValue, actualValue);
+                }
+            }
+            else if (expected is IEnumerable expectedIE
+                && actual is IEnumerable actualIE)
+            {
+                var expectedList = expectedIE.OfType<object>().ToList();
+                var actualList = actualIE.OfType<object>().ToList();
+                Assert.AreEqual(expectedList.Count, actualList.Count, "list count");
+                for (int i = 0; i < expectedList.Count; i++)
+                {
+                    AssertStructurallyEqual(expectedList[i], actualList[i]);
                 }
             }
             else

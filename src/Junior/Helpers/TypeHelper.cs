@@ -75,26 +75,41 @@ namespace Junior.Helpers
         /// </summary>
         public static bool TryGetDictionaryTypes(
             Type type,
-            [NotNullWhen(true)]
-            out Type? keyType,
-            [NotNullWhen(true)]
-            out Type? valueType)
+            [NotNullWhen(true)] out Type? keyType,
+            [NotNullWhen(true)] out Type? valueType)
         {
-            foreach (var i in type.GetInterfaces())
+            if (IsDictionaryInterface(type, out keyType, out valueType))
+                return true;
+
+            var ifaces = type.GetInterfaces();
+            foreach (var i in ifaces)
             {
-                if (i.IsGenericType
-                    && i.GetGenericTypeDefinition() is Type gtd
-                    && (gtd == typeof(IReadOnlyDictionary<,>)
-                        || gtd == typeof(IDictionary<,>)))
-                {
-                    var args = i.GetGenericArguments();
-                    keyType = args[0];
-                    valueType = args[1];
+                if (IsDictionaryInterface(i, out keyType, out valueType))
                     return true;
-                }
             }
 
-            if (typeof(IDictionary).IsAssignableFrom(type))
+            keyType = null;
+            valueType = null;
+            return false;
+        }
+
+        private static bool IsDictionaryInterface(
+            Type type,
+            [NotNullWhen(true)] out Type? keyType,
+            [NotNullWhen(true)] out Type? valueType)
+        {
+            if (type.IsInterface 
+                && type.IsGenericType
+                && type.GetGenericTypeDefinition() is Type gtd
+                && (gtd == typeof(IReadOnlyDictionary<,>)
+                    || gtd == typeof(IDictionary<,>)))
+            {
+                var args = type.GetGenericArguments();
+                keyType = args[0];
+                valueType = args[1];
+                return true;
+            }
+            else if (type == typeof(IDictionary))
             {
                 keyType = typeof(object);
                 valueType = typeof(object);
@@ -105,6 +120,8 @@ namespace Junior.Helpers
             valueType = null;
             return false;
         }
+
+
 
         /// <summary>
         /// Returns the type of a type member,
@@ -125,7 +142,6 @@ namespace Junior.Helpers
             }
         }
 
-
         /// <summary>
         /// Creates a delgate that will invoke a constructor.
         /// </summary>
@@ -139,7 +155,7 @@ namespace Junior.Helpers
         }
 
         /// <summary>
-        /// Creates a delgate that will invoke a constructor with array of object for parameters
+        /// Creates a delgate that will invoke a constructor from an array of objects as parameters.
         /// </summary>
         public static Delegate CreateObjectArrayConstructorDelegate(ConstructorInfo constructor)
         {

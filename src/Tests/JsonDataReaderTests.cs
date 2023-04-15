@@ -43,15 +43,34 @@ namespace Tests
                 """;
 
         [TestMethod]
-        public async Task TestReadRows_InitializedMembers()
+        public async Task TestReadClassRows()
         {
             await TestReadRows(
                 IdNameDataJson,
-                new TestRecord(1, "Tom", 3.2),
-                new TestRecord(2, "Mot", 5.4));
+                new ParameterizedRecord(1, "Tom", 3.2),
+                new ParameterizedRecord(2, "Mot", 5.4));
+
+            await TestReadRows(
+                IdNameDataJson,
+                new InitializedRecord { Id = 1, Name = "Tom", Data = 3.2 },
+                new InitializedRecord { Id = 2, Name = "Mot", Data = 5.4 });
+
+            await TestReadRows(
+                IdNameDataJson,
+                new DefaultValueRecord(1, "Tom"),
+                new DefaultValueRecord(2, "Mot"));
         }
 
-        public record TestRecord(long Id, string Name, double Data);
+        public record ParameterizedRecord(long Id, string Name, double Data);
+
+        public record InitializedRecord()
+        {
+            public long Id { get; init; }
+            public string Name { get; init; } = null!;
+            public double Data { get; init; }
+        }
+
+        public record DefaultValueRecord(long Id, string Name, decimal Discount=0.1m);
 
         private async Task TestReadRows<TRow>(string json, params TRow[] expectedRows)
         {

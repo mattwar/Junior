@@ -1,5 +1,6 @@
 ﻿using System.Collections.Immutable;
 using System.Reflection;
+using Junior.Helpers;
 using static Junior.Helpers.TypeHelper;
 
 namespace Junior
@@ -54,7 +55,7 @@ namespace Junior
             {
                 var parameters =
                     constructor.GetParameters()
-                    .Select(p => new RowConstructorParameter(p.Name!, p.ParameterType))
+                    .Select(p => CreateRowConstructorParameter(p))
                     .ToList();
 
                 var fnConstruct = CreateObjectArrayConstructorDelegate(constructor);
@@ -65,6 +66,12 @@ namespace Junior
             }
 
             return null;
+        }
+
+        private static RowConstructorParameter CreateRowConstructorParameter(ParameterInfo parameter)
+        {
+            var defaultValue = parameter.HasDefaultValue ? parameter.DefaultValue : null;
+            return new RowConstructorParameter(parameter.Name!, parameter.ParameterType, defaultValue);
         }
 
         /// <summary>

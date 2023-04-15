@@ -1,4 +1,6 @@
 ﻿using Junior;
+using System.Collections;
+using System.Collections.Immutable;
 using System.Text;
 using static Tests.Helpers.TestHelpers;
 
@@ -113,7 +115,8 @@ namespace Tests
             await TestInferredReader("[1, 2, 3]", new List<int> { 1, 2, 3 });
             await TestInferredReader<IEnumerable<int>>("[1, 2, 3]", new List<int> { 1, 2, 3 });
             await TestInferredReader("[1, 2, 3]", new TestAddList<int> { 1, 2, 3 });
-            await TestInferredReader("[1, 2, 3]", new TestListConstructable<int>(new [] { 1, 2, 3 }));
+            await TestInferredReader("[1, 2, 3]", new TestListConstructable<int>(new[] { 1, 2, 3 }));
+            await TestInferredReader("[1, 2, 3]", ImmutableArray<int>.Empty.AddRange(new[] { 1, 2, 3 }));
         }
 
         public class TestAddList<T> : List<T>
@@ -129,6 +132,16 @@ namespace Tests
             }
 
             public IReadOnlyList<T> Values { get; }
+        }
+
+        [TestMethod]
+        public async Task TestDictionaryReader()
+        {
+            await TestInferredReader(IdNameJsonText, new Dictionary<string, object> { ["id"] = 123, ["name"] = "Mot" });
+            await TestInferredReader<IReadOnlyDictionary<string, object>>(IdNameJsonText, new Dictionary<string, object> { ["id"] = 123, ["name"] = "Mot" });
+            await TestInferredReader<IDictionary<string, object>>(IdNameJsonText, new Dictionary<string, object> { ["id"] = 123, ["name"] = "Mot" });
+            await TestInferredReader<IDictionary>(IdNameJsonText, new Dictionary<string, object> { ["id"] = 123, ["name"] = "Mot" });
+            await TestInferredReader(IdNameJsonText, ImmutableDictionary<string, object>.Empty.Add("id", 123).Add("name", "Mot"));
         }
 
         [TestMethod]
@@ -157,9 +170,11 @@ namespace Tests
         [TestMethod]
         public async Task TestClassReader()
         {
-            await TestInferredReader(IdNameJsonText, new TestInitializedRecord { Id = 123, Name = "Mot" });
-            await TestInferredReader(IdNameJsonText, new TestParameterizedRecord(123, "Mot"));
-            await TestInferredReader(IdNameJsonText, new TestParameterizedAndInitializedRecord(123) { Name = "Mot" });
+            await TestInferredReader(IdNameJsonText, new InitializedRecord { Id = 123, Name = "Mot" });
+            await TestInferredReader(IdNameJsonText, new ParameterizedRecord(123, "Mot"));
+            await TestInferredReader(IdNameJsonText, new ParameterizedAndInitializedRecord(123) { Name = "Mot" });
+            await TestInferredReader(IdNameJsonText, new InitializedFieldRecord { Id = 123, Name = "Mot" });
+            await TestInferredReader(IdNameJsonText, new DefaultValueRecord(123, "Mot", 0.1m));
         }
 
         private static readonly string IdNameJsonText =
@@ -170,18 +185,27 @@ namespace Tests
             }
             """;
 
-        public record TestParameterizedRecord(int Id, string Name);
+        public record ParameterizedRecord(int Id, string Name);
 
-        public record TestInitializedRecord
+        public record InitializedRecord
         {
             public int Id { get; init; }
             public string Name { get; init; } = null!;
         }
 
-        public record TestParameterizedAndInitializedRecord(int Id)
+        public record ParameterizedAndInitializedRecord(int Id)
         {
             public string Name { get; init; } = null!;
         }
+
+        public record InitializedFieldRecord
+        {
+            public int Id;
+            public string Name = null!;
+        }
+
+        public record DefaultValueRecord(int Id, string Name, decimal Discount = 0.1m);
+
 
         [TestMethod]
         public async Task TestDeferredReader()

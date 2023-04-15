@@ -9,6 +9,7 @@ namespace Junior
         private readonly Dictionary<string, (RowConstructorParameter Info, int Index)> _parameterMap;
         private readonly Dictionary<string, RowMemberInitializer<T>> _initializerMap;
         private readonly Func<object?[], T> _fnConstruct;
+        private readonly bool _initArguments;
 
         public ClassRowReader(
             IReadOnlyList<RowConstructorParameter> parameters,
@@ -31,21 +32,61 @@ namespace Junior
                     StringComparer.OrdinalIgnoreCase);
 
             _fnConstruct = fnConstruct;
+            _initArguments = _parameters.Any(p => p.DefaultValue != null);
+        }
+
+        private void Initialize(
+            out object?[]? arguments,
+            out Dictionary<string, object?>? memberValues,
+            out T? instance)
+        {
+            arguments = _parameterMap.Count > 0
+                    ? new object?[_parameterMap.Values.Count]
+                    : null;
+
+            if (_initArguments && arguments != null)
+            {
+                for (int i = 0; i < arguments.Length; i++)
+                {
+                    arguments[i] = _parameters[i].DefaultValue;
+                }
+            }
+
+            memberValues = arguments != null
+                ? new Dictionary<string, object?>()
+                : null;
+
+            instance = arguments == null
+                ? _fnConstruct(Array.Empty<object?>())
+                : default;
+        }
+
+        private T Construct(object?[]? arguments, Dictionary<string, object?>? memberValues, T? instance)
+        {
+            if (instance == null
+                && arguments != null)
+            {
+                instance = _fnConstruct(arguments!);
+            }
+
+            if (memberValues != null
+                && instance != null)
+            {
+                foreach (var kvp in memberValues)
+                {
+                    if (_initializerMap.TryGetValue(kvp.Key, out var initailizer))
+                    {
+                        initailizer.Assign(instance, kvp.Value);
+                    }
+                }
+            }
+
+            return instance!;
         }
 
         public override async ValueTask<T> ReadAsync(StreamingDataReader dataReader)
         {
-            var arguments = (_parameterMap.Count > 0)
-                    ? new object?[_parameterMap.Count]
-                    : null;
-
-            var memberValues = arguments != null
-                ? new Dictionary<string, object?>()
-                : null;
-
-            var instance = arguments == null
-                ? _fnConstruct(Array.Empty<object?>())
-                : default;
+            Initialize(out var arguments, out var memberValues, out var instance);
 
             while (await dataReader.MoveToNextFieldAsync().ConfigureAwait(false))
             {
@@ -98,24 +139,7 @@ namespace Junior
                 }
             }
 
-            if (arguments != null)
-            {
-                instance = _fnConstruct(arguments);
-            }
-
-            if (memberValues != null
-                && instance != null)
-            {
-                foreach (var kvp in memberValues)
-                {
-                    if (_initializerMap.TryGetValue(kvp.Key, out var initailizer))
-                    {
-                        initailizer.Assign(instance, kvp.Value);
-                    }
-                }
-            }
-
-            return instance!;
+            return Construct(arguments, memberValues, instance);
         }
     }
 
@@ -132,7 +156,7 @@ namespace Junior
         }
     }
 
-    public record RowConstructorParameter(string Name, Type Type);
+    public record RowConstructorParameter(string Name, Type Type, object? DefaultValue);
 
     public abstract class RowMemberInitializer
     {

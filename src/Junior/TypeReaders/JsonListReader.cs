@@ -3,19 +3,18 @@
     /// <summary>
     /// A <see cref="JsonTypeReader"/> for a type that is list-like
     /// </summary>
-    public class JsonListReader<TType, TList, TElement> : JsonTypeReader<TType>
-        where TType : class
+    public class JsonListReader<TType, TBuilder, TElement> : JsonTypeReader<TType>
     {
         private readonly JsonTypeReader<TElement> _elementReader;
-        private readonly Func<TList> _fnCreate;
-        private readonly Action<TList, TElement?> _fnAdd;
-        private readonly Func<TList, TType> _fnMap;
+        private readonly Func<TBuilder> _fnCreate;
+        private readonly Action<TBuilder, TElement?> _fnAdd;
+        private readonly Func<TBuilder, TType> _fnMap;
 
         public JsonListReader(
             JsonTypeReader<TElement> elementReader,
-            Func<TList> fnCreate,
-            Action<TList, TElement?> fnAdd,
-            Func<TList, TType> fnMap)
+            Func<TBuilder> fnCreate,
+            Action<TBuilder, TElement?> fnAdd,
+            Func<TBuilder, TType> fnMap)
         {
             _elementReader = elementReader;
             _fnCreate = fnCreate;
@@ -61,7 +60,7 @@
 
                 default:
                     reader.MoveToNextToken();
-                    return null;
+                    return default;
             }
         }
 
@@ -103,7 +102,7 @@
 
                 default:
                     await reader.MoveToNextTokenAsync().ConfigureAwait(false);
-                    return null;
+                    return default;
             }
         }
     }
@@ -126,7 +125,7 @@
     }
 
     /// <summary>
-    /// A <see cref="JsonTypeReader"/> for list-like types with an Add method.
+    /// A <see cref="JsonTypeReader"/> for mutable list-like types with an Add method.
     /// </summary>
     public class JsonListAddReader<TType, TElement> 
         : JsonListReader<TType, TType, TElement>
@@ -149,7 +148,6 @@
     /// </summary>
     public class JsonListConstructableReader<TType, TElement> 
         : JsonListReader<TType, List<TElement?>, TElement>
-        where TType : class
     {
         public JsonListConstructableReader(
             JsonTypeReader<TElement> elementReader,
@@ -167,14 +165,13 @@
     /// A <see cref="JsonTypeReader"/> for arrays.
     /// </summary>
     public class JsonArrayAssignableReader<TType, TElement> 
-        : JsonListReader<TType, List<TElement>, TElement>
-        where TType : class
+        : JsonListReader<TType, List<TElement?>, TElement>
     {
         public JsonArrayAssignableReader(
             JsonTypeReader<TElement> elementReader)
             : base(
                   elementReader,
-                  () => new List<TElement>(),
+                  () => new List<TElement?>(),
                   (list, value) => list.Add(value!),
                   items => (TType)(object)items.ToArray())
         {

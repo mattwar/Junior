@@ -138,7 +138,7 @@
 
     public class JsonDictionaryAssignableReader<TType, TKey, TValue>
         : JsonDictionaryReader<TType, Dictionary<TKey, TValue>, TKey, TValue>
-        where TType : class, new()
+        where TType : class
         where TKey : notnull
     {
         public JsonDictionaryAssignableReader(

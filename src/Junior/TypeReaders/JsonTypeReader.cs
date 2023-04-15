@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Reflection.PortableExecutable;
 using System.Text;
 using Junior.Helpers;
 using static Junior.Helpers.TypeHelper;
@@ -71,10 +71,10 @@ namespace Junior
                 ?? CreateDictionaryAssignableReader(type)
                 ?? CreateListAssignableReader(type)
                 ?? CreateArrayAssignableReader(type)
-                ?? CreateDictionaryAddReader(type)
                 ?? CreateImmutableDictionaryReader(type)
-                ?? CreateListAddReader(type)
+                ?? CreateDictionaryAddReader(type)
                 ?? CreateImmutableListReader(type)
+                ?? CreateListAddReader(type)
                 ?? CreateClassReader(type)
                 ?? CreateDictionaryConstructableReader(type)
                 ?? CreateListConstructableReader(type)
@@ -82,6 +82,13 @@ namespace Junior
                 ?? CreateStringParsableReader(type)
                 ?? CreateStringConstructableReader(type);
         }
+
+
+        private static readonly BindingFlags PublicInstance =
+            BindingFlags.Public | BindingFlags.Instance;
+
+        private static readonly BindingFlags PublicStatic =
+            BindingFlags.Public | BindingFlags.Static;
 
         /// <summary>
         /// Finds the corresponding <see cref="JsonTypeReader"/> designated by the
@@ -94,7 +101,7 @@ namespace Junior
             if (attr != null)
             {
                 // if it has a singleton instance field, use that
-                if (attr.ReaderType.GetField("Instance", BindingFlags.Public | BindingFlags.Static) is FieldInfo field
+                if (attr.ReaderType.GetField("Instance", PublicInstance) is FieldInfo field
                     && field.GetValue(null) is JsonTypeReader instance)
                     return instance;
 
@@ -222,7 +229,7 @@ namespace Junior
                 && HasPublicDefaultConstructor(type))
             {
                 var addMethodArgTypes = new Type[] { elementType };
-                var addMethod = type.GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                var addMethod = type.GetMethods(PublicInstance)
                     .FirstOrDefault(m => IsMatchingMethod(m, "Add", addMethodArgTypes));
 
                 if (addMethod != null
@@ -269,9 +276,8 @@ namespace Junior
             if (TypeHelper.TryGetDictionaryTypes(type, out var keyType, out var valueType)
                 && HasPublicDefaultConstructor(type))
             {
-
                 var addMethodArgTypes = new Type[] { keyType, valueType };
-                var addMethod = type.GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                var addMethod = type.GetMethods(PublicInstance)
                     .FirstOrDefault(m => IsMatchingMethod(m, "Add", addMethodArgTypes));
 
                 if (addMethod != null
@@ -311,12 +317,140 @@ namespace Junior
             return null;
         }
 
+        private static bool TryGetImmutableDictionaryBuilderPattern(
+            Type type,
+            [NotNullWhen(true)]
+            out Type? keyType,
+            [NotNullWhen(true)]
+            out Type? valueType,
+            [NotNullWhen(true)]
+            out Type? builderType,
+            [NotNullWhen(true)]
+            out Delegate? fnCreate,
+            [NotNullWhen(true)]
+            out Delegate? fnAdd,
+            [NotNullWhen(true)]
+            out Delegate? fnMap)
+        {
+            if (TryGetDictionaryTypes(type, out keyType, out valueType)
+                && type.GetField("Empty", PublicStatic) is FieldInfo emptyField
+                && emptyField.FieldType == type
+                && GetMatchingMethod(type, "ToBuilder") is MethodInfo toBuilderMethod)
+            {
+                builderType = toBuilderMethod.ReturnType;
+                var addMethod = GetMatchingMethod(builderType,"Add", new Type[] { keyType, valueType });
+                var toImmutableMethod = GetMatchingMethod(builderType, "ToImmutable");
+
+                if (addMethod != null
+                    && toImmutableMethod != null)
+                {
+                    fnCreate = Expression.Lambda(
+                        Expression.Call(Expression.Field(null, emptyField), toBuilderMethod))
+                        .Compile();
+
+                    var actionType = typeof(Action<,,>).MakeGenericType(builderType, keyType, valueType);
+                    fnAdd = Delegate.CreateDelegate(actionType, addMethod);
+
+                    var builderParam = Expression.Parameter(builderType, "builder");
+                    fnMap = Expression.Lambda(
+                        Expression.Call(builderParam, toImmutableMethod),
+                        builderParam)
+                        .Compile();
+
+                    return true;
+                }
+            }
+
+            keyType = null;
+            valueType = null;
+            builderType = null;
+            fnCreate = null;
+            fnAdd = null;
+            fnMap = null;
+
+            return false;
+        }
+
         /// <summary>
         /// Creates a <see cref="JsonTypeReader"/> for immutable dictionary types that follow the immutable construction pattern.
         /// </summary>
         private static JsonTypeReader? CreateImmutableDictionaryReader(Type type)
         {
+            if (TryGetImmutableDictionaryBuilderPattern(type,
+                out var keyType, 
+                out var valueType, 
+                out var builderType,
+                out var fnCreate, 
+                out var fnAdd, 
+                out var fnMap)
+                && GetReader(keyType) is JsonTypeReader keyReader
+                && GetReader(valueType) is JsonTypeReader valueReader)
+            {
+                return (JsonTypeReader?)Activator.CreateInstance(
+                    typeof(JsonDictionaryReader<,,,>).MakeGenericType(type, builderType, keyType, valueType),
+                    new object[] { keyReader, valueReader, fnCreate, fnAdd, fnMap });
+            }
+
             return null;
+        }
+
+        private static bool TryGetImmutableListBuilderPattern(
+            Type type,
+            [NotNullWhen(true)]
+            out Type? elementType,
+            [NotNullWhen(true)]
+            out Type? builderType,
+            [NotNullWhen(true)]
+            out Delegate? fnCreate,
+            [NotNullWhen(true)]
+            out Delegate? fnAdd,
+            [NotNullWhen(true)]
+            out Delegate? fnMap)
+        {
+            if (TryGetElementType(type, out elementType)
+                && type.GetField("Empty", PublicStatic) is FieldInfo emptyField
+                && emptyField.FieldType == type
+                && GetMatchingMethod(type, "ToBuilder") is MethodInfo toBuilderMethod)
+            {
+                builderType = toBuilderMethod.ReturnType;
+                var addMethod = GetMatchingMethod(builderType, "Add", new Type[] { elementType });
+                var toImmutableMethod = GetMatchingMethod(builderType, "ToImmutable");
+
+                if (addMethod != null
+                    && toImmutableMethod != null)
+                {
+                    fnCreate = Expression.Lambda(
+                        Expression.Call(Expression.Field(null, emptyField), toBuilderMethod))
+                        .Compile();
+
+                    var actionType = typeof(Action<,>).MakeGenericType(builderType, elementType);
+                    fnAdd = Delegate.CreateDelegate(actionType, addMethod);
+
+                    var builderParam = Expression.Parameter(builderType, "builder");
+                    fnMap = Expression.Lambda(
+                        Expression.Call(builderParam, toImmutableMethod),
+                        builderParam)
+                        .Compile();
+
+                    return true;
+                }
+            }
+
+            elementType = null;
+            builderType = null;
+            fnCreate = null;
+            fnAdd = null;
+            fnMap = null;
+
+            return false;
+        }
+
+        private static string GetNameWithoutRank(string name)
+        {
+            var index = name.IndexOf("`");
+            if (index >= 0)
+                return name.Substring(0, index);
+            return name;
         }
 
         /// <summary>
@@ -324,6 +458,20 @@ namespace Junior
         /// </summary>
         private static JsonTypeReader? CreateImmutableListReader(Type type)
         {
+            // check for immutable builder pattern
+            if (TryGetImmutableListBuilderPattern(type, 
+                out var elementType,
+                out var builderType,
+                out var fnCreate,
+                out var fnAdd,
+                out var fnMap)
+                && GetReader(elementType) is JsonTypeReader elementReader)
+            { 
+                return (JsonTypeReader?)Activator.CreateInstance(
+                    typeof(JsonListReader<,,>).MakeGenericType(type, builderType, elementType),
+                    new object[] { elementReader, fnCreate, fnAdd, fnMap });
+            }
+
             return null;
         }
 
@@ -391,7 +539,8 @@ namespace Junior
             var reader = GetReader(parameter.ParameterType);
             if (reader != null)
             {
-                return new JsonConstructorParameter(parameter.Name!, reader);
+                var defaultValue = parameter.HasDefaultValue ? parameter.DefaultValue : null;
+                return new JsonConstructorParameter(parameter.Name!, reader, defaultValue);
             }
 
             return null;
